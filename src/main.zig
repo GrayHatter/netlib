@@ -61,6 +61,12 @@ pub fn main() !void {
 
     var nl_more: bool = true;
 
+    // reliable transmissions from kernel to user are impossible in any case.
+    // The kernel can't send a netlink message if the socket buffer is full: the
+    // message will be dropped and the kernel and the user-space process will no
+    // longer have the same view of kernel state.  It is up to the application
+    // to detect when this happens (via the ENOBUFS error returned by
+    // recvmsg()) and resynchronize.
     while (nl_more) {
         var size = try read(s, &rbuffer);
         var start: usize = 0;
@@ -127,6 +133,36 @@ pub fn main() !void {
     try stdout.print("done\n", .{});
 }
 
+const Family = enum(u8) {
+    IPv4 = 2,
+    IPv6 = 10,
+    _,
+};
+
+const ifaddrmsg = extern struct {
+    family: Family,
+    prefixlen: u8,
+    flags: Flags,
+    scope: u8,
+    index: u32,
+
+    pub const Flags = packed struct(u8) {
+        SECONDARY: bool,
+        //TEMPORARY              IFA_F_SECONDARY
+        NODAD: bool,
+        OPTIMISTIC: bool,
+        DADFAILED: bool,
+        HOMEADDRESS: bool,
+        DEPRECATED: bool,
+        TENTATIVE: bool,
+        PERMANENT: bool,
+        //MANAGETEMPADDR: bool,
+        //NOPREFIXROUTE: bool,
+        //MCAUTOJOIN: bool,
+        //STABLE_PRIVACY: bool,
+    };
+};
+
 pub const ifinfomsg = extern struct {
     family: u8,
     __pad1: u8 = 0,
@@ -167,19 +203,9 @@ const net_device_flags = packed struct(c_uint) {
     __padding: u13,
 };
 
-fn dumpAddr(stdout: anytype, data: []const u8) !void {
-    try stdout.print("NEWADDR\n", .{});
-    try stdout.print("blob {any}\n", .{data});
-}
-
-fn dumpLink(stdout: anytype, data: []const u8) !void {
+fn dumpRtAttr(stdout: anytype, data: []const u8) !void {
     var offset: usize = 0;
-    try stdout.print("NEWLINK\n", .{});
-    offset += @sizeOf(nlmsghdr);
-    const link: *const ifinfomsg = @ptrCast(@alignCast(data[offset..]));
-    try stdout.print("link {}\n", .{link});
     const rtattr = std.os.linux.rtattr;
-    offset += @sizeOf(ifinfomsg);
     while (offset < data.len) {
         const attr: *const rtattr = @ptrCast(@alignCast(data[offset..]));
         offset += @sizeOf(rtattr);
@@ -217,6 +243,27 @@ fn dumpLink(stdout: anytype, data: []const u8) !void {
         }
         offset += (attr.len + 3 & ~@as(usize, 3)) - @sizeOf(rtattr);
     }
+}
+
+fn dumpAddr(stdout: anytype, data: []const u8) !void {
+    try stdout.print("NEWADDR\n", .{});
+    //try stdout.print("blob {any}\n", .{data});
+    var offset: usize = @sizeOf(nlmsghdr);
+    const addr: *const ifaddrmsg = @ptrCast(@alignCast(data[offset..]));
+    try stdout.print("addr {any}\n", .{addr});
+    offset += @sizeOf(ifaddrmsg);
+    //try stdout.print("blob {any}\n", .{data[offset..]});
+    try dumpRtAttr(stdout, data[offset..]);
+}
+
+fn dumpLink(stdout: anytype, data: []const u8) !void {
+    var offset: usize = 0;
+    try stdout.print("NEWLINK\n", .{});
+    offset += @sizeOf(nlmsghdr);
+    const link: *const ifinfomsg = @ptrCast(@alignCast(data[offset..]));
+    try stdout.print("link {}\n", .{link});
+    offset += @sizeOf(ifinfomsg);
+    try dumpRtAttr(stdout, data[offset..]);
 }
 
 //      RTM_NEWLINK
