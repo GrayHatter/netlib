@@ -133,6 +133,42 @@ pub fn main() !void {
     try stdout.print("done\n", .{});
 }
 
+pub const rtattr = extern struct {
+    /// Length of option
+    len: c_ushort,
+
+    /// Type of option
+    type: packed union {
+        /// IFLA_* from linux/if_link.h
+        link: IFLA,
+        /// IFA_* from linux/if_addr.h
+        addr: IFA,
+    },
+
+    pub const ALIGNTO = 4;
+};
+
+pub const IFA = packed struct(u16) {
+    type: enum(u14) {
+        UNSPEC,
+        ADDRESS,
+        LOCAL,
+        LABEL,
+        BROADCAST,
+        ANYCAST,
+        CACHEINFO,
+        MULTICAST,
+        FLAGS,
+        RT_PRIORITY,
+        TARGET_NETNSID,
+        PROTO,
+
+        _,
+    },
+    byte_order: bool,
+    nested: bool,
+};
+
 const Family = enum(u8) {
     IPv4 = 2,
     IPv6 = 10,
@@ -233,13 +269,116 @@ pub const ifa_proto = enum(u8) {
     KERNEL_LL,
 };
 
+pub const IFLA = packed struct(u16) {
+    type: enum(u14) {
+        UNSPEC,
+        ADDRESS,
+        BROADCAST,
+        IFNAME,
+        MTU,
+        LINK,
+        QDISC,
+        STATS,
+        COST,
+        PRIORITY,
+        MASTER,
+
+        /// Wireless Extension event
+        WIRELESS,
+
+        /// Protocol specific information for a link
+        PROTINFO,
+
+        TXQLEN,
+        MAP,
+        WEIGHT,
+        OPERSTATE,
+        LINKMODE,
+        LINKINFO,
+        NET_NS_PID,
+        IFALIAS,
+
+        /// Number of VFs if device is SR-IOV PF
+        NUM_VF,
+
+        VFINFO_LIST,
+        STATS64,
+        VF_PORTS,
+        PORT_SELF,
+        AF_SPEC,
+
+        /// Group the device belongs to
+        GROUP,
+
+        NET_NS_FD,
+
+        /// Extended info mask, VFs, etc
+        EXT_MASK,
+
+        /// Promiscuity count: > 0 means acts PROMISC
+        PROMISCUITY,
+
+        NUM_TX_QUEUES,
+        NUM_RX_QUEUES,
+        CARRIER,
+        PHYS_PORT_ID,
+        CARRIER_CHANGES,
+        PHYS_SWITCH_ID,
+        LINK_NETNSID,
+        PHYS_PORT_NAME,
+        PROTO_DOWN,
+        GSO_MAX_SEGS,
+        GSO_MAX_SIZE,
+        PAD,
+        XDP,
+        EVENT,
+
+        NEW_NETNSID,
+        IF_NETNSID,
+
+        CARRIER_UP_COUNT,
+        CARRIER_DOWN_COUNT,
+        NEW_IFINDEX,
+        MIN_MTU,
+        MAX_MTU,
+
+        PROP_LIST,
+        ALT_IFNAME, // Alternative ifname
+        PERM_ADDRESS,
+        PROTO_DOWN_REASON,
+
+        // device (sysfs) name as parent, used instead
+        // of IFLA_LINK where there's no parent netdev
+        PARENT_DEV_NAME,
+        PARENT_DEV_BUS_NAME,
+        GRO_MAX_SIZE,
+        TSO_MAX_SIZE,
+        TSO_MAX_SEGS,
+        ALLMULTI, // Allmulti count: > 0 means acts ALLMULTI
+
+        DEVLINK_PORT,
+
+        GSO_IPV4_MAX_SIZE,
+        GRO_IPV4_MAX_SIZE,
+        DPLL_PIN,
+        MAX_PACING_OFFLOAD_HORIZON,
+        NETNS_IMMUTABLE,
+        __MAX,
+        _,
+    },
+    byte_order: bool,
+    nested: bool,
+
+    pub const TARGET_NETNSID: IFLA = .IF_NETNSID;
+};
+
 fn dumpRtAttrAddr(stdout: anytype, data: []const u8) !void {
     var offset: usize = 0;
-    const rtattr = std.os.linux.rtattr;
+    //const rtattr = std.os.linux.rtattr;
     while (offset < data.len) {
         const attr: *const rtattr = @ptrCast(@alignCast(data[offset..]));
         offset += @sizeOf(rtattr);
-        switch (attr.type.addr) {
+        switch (attr.type.addr.type) {
             .LABEL => {
                 const name_len = attr.len - @sizeOf(rtattr);
                 const nameptr: [*]const u8 = @ptrCast(@alignCast(data[offset..]));
@@ -252,13 +391,19 @@ fn dumpRtAttrAddr(stdout: anytype, data: []const u8) !void {
             .ADDRESS,
             .BROADCAST,
             .LOCAL,
-            => {
-                const int: u16 = @intFromEnum(attr.type.addr);
+            => |t| {
+                try stdout.writeAll(switch (t) {
+                    .ADDRESS => "addr  ",
+                    .BROADCAST => "bcast ",
+                    .LOCAL => "local ",
+                    else => unreachable,
+                });
+                const int: u16 = @intFromEnum(attr.type.addr.type);
                 const len = attr.len - @sizeOf(rtattr);
                 const attr_data: [*]const u8 = @ptrCast(@alignCast(data[offset..]));
                 switch (len) {
                     4 => {
-                        try stdout.print("addr {}.{}.{}.{}\n", .{
+                        try stdout.print("{}.{}.{}.{}\n", .{
                             attr_data[0],
                             attr_data[1],
                             attr_data[2],
@@ -266,7 +411,7 @@ fn dumpRtAttrAddr(stdout: anytype, data: []const u8) !void {
                         });
                     },
                     16 => {
-                        try stdout.print("addr {}:{}:{}:{}:{}:{}:{}:{}\n", .{
+                        try stdout.print("{}:{}:{}:{}:{}:{}:{}:{}\n", .{
                             std.fmt.fmtSliceHexLower(attr_data[0..][0..2]),
                             std.fmt.fmtSliceHexLower(attr_data[2..][0..2]),
                             std.fmt.fmtSliceHexLower(attr_data[4..][0..2]),
@@ -278,7 +423,7 @@ fn dumpRtAttrAddr(stdout: anytype, data: []const u8) !void {
                         });
                     },
                     else => {
-                        try stdout.print("attr {}    {}    {b}\n", .{ attr.type.addr, int, int });
+                        try stdout.print("attr {}    {}    {b}\n", .{ attr.type.addr.type, int, int });
                         try stdout.print("len {} \n", .{len});
                     },
                 }
@@ -296,8 +441,8 @@ fn dumpRtAttrAddr(stdout: anytype, data: []const u8) !void {
                 try stdout.print("prot {} \n", .{prot.*});
             },
             else => {
-                const int: u16 = @intFromEnum(attr.type.addr);
-                try stdout.print("\n\n\n\nattr {}\n    {}    {b}\n", .{ attr.type.addr, int, int });
+                const int: u16 = @intFromEnum(attr.type.addr.type);
+                try stdout.print("\n\n\n\nattr {}\n    {}    {b}\n", .{ attr.type.addr.type, int, int });
                 try stdout.print("attr.len {}\n", .{attr.len});
                 const len = attr.len - @sizeOf(rtattr);
                 const attr_data: [*]const u8 = @ptrCast(@alignCast(data[offset..]));
@@ -310,11 +455,11 @@ fn dumpRtAttrAddr(stdout: anytype, data: []const u8) !void {
 
 fn dumpRtAttrLink(stdout: anytype, data: []const u8) !void {
     var offset: usize = 0;
-    const rtattr = std.os.linux.rtattr;
+    //const rtattr = std.os.linux.rtattr;
     while (offset < data.len) {
         const attr: *const rtattr = @ptrCast(@alignCast(data[offset..]));
         offset += @sizeOf(rtattr);
-        switch (attr.type.link) {
+        switch (attr.type.link.type) {
             .IFNAME => {
                 const name_len = attr.len - @sizeOf(rtattr);
                 const nameptr: [*]const u8 = @ptrCast(@alignCast(data[offset..]));
@@ -325,7 +470,7 @@ fn dumpRtAttrLink(stdout: anytype, data: []const u8) !void {
                 );
             },
             .AF_SPEC => {
-                try stdout.print("attr {}\n", .{attr.type.link});
+                try stdout.print("attr {}\n", .{attr.type.link.type});
                 try stdout.print("attr.len {}\n", .{attr.len});
             },
             .STATS => {},
@@ -338,8 +483,8 @@ fn dumpRtAttrLink(stdout: anytype, data: []const u8) !void {
                 try stdout.print("stats {} \n", .{stats});
             },
             .BROADCAST, .ADDRESS => {
-                const int: u16 = @intFromEnum(attr.type.link);
-                try stdout.print("attr {}    {}    {b}\n", .{ attr.type.link, int, int });
+                const int: u16 = @intFromEnum(attr.type.link.type);
+                try stdout.print("attr {}    {}    {b}\n", .{ attr.type.link.type, int, int });
                 const len = attr.len - @sizeOf(rtattr);
                 const attr_data: [*]const u8 = @ptrCast(@alignCast(data[offset..]));
                 switch (len) {
@@ -363,8 +508,8 @@ fn dumpRtAttrLink(stdout: anytype, data: []const u8) !void {
                 try stdout.print("ifmap {} \n", .{ifmap.*});
             },
             .WIRELESS => {
-                const int: u16 = @intFromEnum(attr.type.link);
-                try stdout.print("attr {}\n    {}    {b}\n", .{ attr.type.link, int, int });
+                const int: u16 = @intFromEnum(attr.type.link.type);
+                try stdout.print("attr {}\n    {}    {b}\n", .{ attr.type.link.type, int, int });
                 try stdout.print("attr.len {}\n", .{attr.len});
                 const len = attr.len - @sizeOf(rtattr);
                 const attr_data: [*]const u8 = @ptrCast(@alignCast(data[offset..]));
@@ -372,8 +517,8 @@ fn dumpRtAttrLink(stdout: anytype, data: []const u8) !void {
                 try stdout.print("attr.data {any} \n", .{attr_data[0..len]});
             },
             else => {
-                const int: u16 = @intFromEnum(attr.type.link);
-                try stdout.print("attr {}\n    {}    {b}\n", .{ attr.type.link, int, int });
+                const int: u16 = @intFromEnum(attr.type.link.type);
+                try stdout.print("attr {}\n    {}    {b}\n", .{ attr.type.link.type, int, int });
                 try stdout.print("attr.len {}\n", .{attr.len});
                 const len = attr.len - @sizeOf(rtattr);
                 const attr_data: [*]const u8 = @ptrCast(@alignCast(data[offset..]));
