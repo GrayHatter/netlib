@@ -11,6 +11,27 @@ fn usage(arg0: []const u8) noreturn {
 
 const rtgenmsg = extern struct {
     family: u8,
+
+    pub const packet: rtgenmsg = .{ .family = AF.PACKET };
+};
+
+//const nlmsghdr = std.os.linux.nlmsghdr;
+pub const nlmsghdr = extern struct {
+    len: u32,
+    type: std.os.linux.NetlinkMessageType,
+    flags: u16,
+    /// Sequence number
+    seq: u32,
+    /// Sending process port ID
+    pid: u32,
+
+    pub const dump_link: nlmsghdr = .{
+        .len = @sizeOf(nlmsghdr) + @sizeOf(rtgenmsg),
+        .type = .RTM_GETLINK,
+        .flags = std.os.linux.NLM_F_REQUEST | std.os.linux.NLM_F_ACK | std.os.linux.NLM_F_DUMP,
+        .seq = 1,
+        .pid = 0,
+    };
 };
 
 pub fn main() !void {
@@ -37,17 +58,9 @@ pub fn main() !void {
 
     var wbuffer: [both_size]u8 align(4) = undefined;
     const r_hdr: *nlmsghdr = @ptrCast(wbuffer[0..]);
-    r_hdr.* = .{
-        .len = both_size,
-        .type = .RTM_GETLINK,
-        .flags = std.os.linux.NLM_F_REQUEST | std.os.linux.NLM_F_ACK | std.os.linux.NLM_F_DUMP,
-        .seq = 10,
-        .pid = 0,
-    };
+    r_hdr.* = .dump_link;
     const r_rtgen: *rtgenmsg = @ptrCast(wbuffer[@sizeOf(nlmsghdr)..]);
-    r_rtgen.* = .{
-        .family = AF.PACKET,
-    };
+    r_rtgen.* = .packet;
 
     _ = try write(s, wbuffer[0..both_size]);
 
@@ -628,8 +641,6 @@ const RTMGRP_DECnet_ROUTE = 0x4000;
 const RTMGRP_IPV6_PREFIX = 0x20000;
 
 const rtnetlink_groups = enum { RTNLGRP_NONE, RTNLGRP_LINK, RTNLGRP_NOTIFY, RTNLGRP_NEIGH, RTNLGRP_TC, RTNLGRP_IPV4_IFADDR, RTNLGRP_IPV4_MROUTE, RTNLGRP_IPV4_ROUTE, RTNLGRP_IPV4_RULE, RTNLGRP_IPV6_IFADDR, RTNLGRP_IPV6_MROUTE, RTNLGRP_IPV6_ROUTE, RTNLGRP_IPV6_IFINFO, RTNLGRP_DECnet_IFADDR, RTNLGRP_NOP2, RTNLGRP_DECnet_ROUTE, RTNLGRP_DECnet_RULE, RTNLGRP_NOP4, RTNLGRP_IPV6_PREFIX, RTNLGRP_IPV6_RULE, RTNLGRP_ND_USEROPT, RTNLGRP_PHONET_IFADDR, RTNLGRP_PHONET_ROUTE, RTNLGRP_DCB, RTNLGRP_IPV4_NETCONF, RTNLGRP_IPV6_NETCONF, RTNLGRP_MDB, RTNLGRP_MPLS_ROUTE, RTNLGRP_NSID, RTNLGRP_MPLS_NETCONF, RTNLGRP_IPV4_MROUTE_R, RTNLGRP_IPV6_MROUTE_R, RTNLGRP_NEXTHOP, RTNLGRP_BRVLAN, RTNLGRP_MCTP_IFADDR, RTNLGRP_TUNNEL, RTNLGRP_STATS, RTNLGRP_IPV4_MCADDR, RTNLGRP_IPV6_MCADDR, RTNLGRP_IPV6_ACADDR, __RTNLGRP_MAX };
-
-const nlmsghdr = std.os.linux.nlmsghdr;
 
 const genlmsghdr = extern struct {
     cmd: u8,
