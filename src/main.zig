@@ -35,6 +35,10 @@ pub const nlmsghdr = extern struct {
 };
 
 pub fn main() !void {
+    try route();
+}
+
+pub fn route() !void {
     const stdout = std.io.getStdOut().writer();
 
     //var debug_a: std.heap.DebugAllocator(.{}) = .{};
