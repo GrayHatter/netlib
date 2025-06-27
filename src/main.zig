@@ -578,10 +578,10 @@ pub const IFLA = packed struct(u16) {
 };
 
 fn dumpRtAttrAddr(stdout: anytype, data: []const u8) !void {
-    var offset2: usize = 0;
+    var offset: usize = 0;
     //const rtattr = std.os.linux.rtattr;
-    while (offset2 < data.len) {
-        const attr: Attr(.rtaddr) = try .init(@alignCast(data[offset2..]));
+    while (offset < data.len) {
+        const attr: Attr(.rtaddr) = try .init(@alignCast(data[offset..]));
         switch (attr.type.type) {
             .LABEL => {
                 const name: [:0]const u8 = attr.data[0 .. attr.data.len - 1 :0];
@@ -652,7 +652,7 @@ fn dumpRtAttrAddr(stdout: anytype, data: []const u8) !void {
                 try stdout.print("attr.data {any} \n\n\n", .{attr.data});
             },
         }
-        offset2 += attr.len_aligned;
+        offset += attr.len_aligned;
     }
 }
 
