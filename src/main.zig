@@ -35,15 +35,6 @@ pub const nlmsghdr = extern struct {
 };
 
 pub fn main() !void {
-    try route();
-}
-
-pub fn route() !void {
-    const stdout = std.io.getStdOut().writer();
-
-    //var debug_a: std.heap.DebugAllocator(.{}) = .{};
-    //const a = debug_a.allocator();
-
     var args = std.process.args();
     const arg0 = args.next() orelse usage("wat?!");
 
@@ -53,8 +44,106 @@ pub fn route() !void {
         }
     }
 
-    var buffer: std.ArrayListUnmanaged(u8) = .{};
-    _ = &buffer;
+    try nl80211();
+}
+pub const genlmsghdr = extern struct {
+    cmd: u8,
+    version: u8 = 2,
+    reserved: u16 = 0,
+};
+
+const GENL = enum(u8) {
+    ID_CTRL = std.os.linux.NetlinkMessageType.MIN_TYPE,
+    ID_VFS_DQUOT,
+    ID_PMCRAID,
+    START_ALLOC,
+};
+
+pub const CTRL = struct {
+    pub const ATTR = enum(u16) {
+        UNSPEC,
+        FAMILY_ID,
+        FAMILY_NAME,
+        VERSION,
+        HDRSIZE,
+        MAXATTR,
+        OPS,
+        MCAST_GROUPS,
+        POLICY,
+        OP_POLICY,
+        OP,
+        __CTRL_ATTR_MAX,
+    };
+
+    pub const CMD = enum(u8) {
+        UNSPEC,
+        NEWFAMILY,
+        DELFAMILY,
+        GETFAMILY,
+        NEWOPS,
+        DELOPS,
+        GETOPS,
+        NEWMCAST_GRP,
+        DELMCAST_GRP,
+        GETMCAST_GRP,
+        GETPOLICY,
+        __MAX,
+    };
+};
+
+const nlattr = extern struct {
+    len: u16,
+    type: u16,
+};
+
+pub fn nl80211() !void {
+    const stdout = std.io.getStdOut().writer();
+
+    const s = try socket(AF.NETLINK, SOCK.RAW, std.os.linux.NETLINK.GENERIC);
+
+    const full_size = (@sizeOf(nlmsghdr) + @sizeOf(genlmsghdr) + @sizeOf(nlattr) + 8 + 3) & ~@as(usize, 3);
+
+    var wbuffer: [full_size]u8 align(4) = undefined;
+    const r_hdr: *nlmsghdr = @ptrCast(wbuffer[0..]);
+    r_hdr.* = .{
+        .len = full_size,
+        .type = @enumFromInt(@intFromEnum(GENL.ID_CTRL)),
+        .flags = std.os.linux.NLM_F_REQUEST | std.os.linux.NLM_F_ACK,
+        .seq = 1,
+        .pid = 0,
+    };
+    r_hdr.len = full_size;
+    const r_genmsg: *genlmsghdr = @ptrCast(wbuffer[@sizeOf(nlmsghdr)..]);
+    r_genmsg.* = .{
+        .cmd = @intFromEnum(CTRL.CMD.GETFAMILY),
+    };
+
+    const attr: *nlattr = @ptrCast(wbuffer[@sizeOf(nlmsghdr) + @sizeOf(genlmsghdr) ..]);
+    attr.* = .{
+        .len = 12,
+        .type = @intFromEnum(CTRL.ATTR.FAMILY_NAME),
+    };
+
+    const str: *[7:0]u8 = @ptrCast(wbuffer[@sizeOf(nlmsghdr) + @sizeOf(genlmsghdr) + @sizeOf(nlattr) ..]);
+    str.* = "nl80211".*;
+
+    _ = try write(s, wbuffer[0..]);
+
+    try stdout.print("{any}\n", .{wbuffer});
+
+    //offset += (attr.len + 3 & ~@as(usize, 3)) - @sizeOf(rtattr);
+
+    var rbuffer: [0x8000]u8 align(4) = undefined;
+
+    const size = try read(s, &rbuffer);
+    try stdout.print("\n\n\n", .{});
+    try stdout.print("{any}\n", .{rbuffer[0..size]});
+
+    try stdout.print("done\n", .{});
+}
+
+pub fn route() !void {
+    const stdout = std.io.getStdOut().writer();
 
     const s = try socket(AF.NETLINK, SOCK.RAW, std.os.linux.NETLINK.ROUTE);
 
@@ -645,12 +734,6 @@ const RTMGRP_DECnet_ROUTE = 0x4000;
 const RTMGRP_IPV6_PREFIX = 0x20000;
 
 const rtnetlink_groups = enum { RTNLGRP_NONE, RTNLGRP_LINK, RTNLGRP_NOTIFY, RTNLGRP_NEIGH, RTNLGRP_TC, RTNLGRP_IPV4_IFADDR, RTNLGRP_IPV4_MROUTE, RTNLGRP_IPV4_ROUTE, RTNLGRP_IPV4_RULE, RTNLGRP_IPV6_IFADDR, RTNLGRP_IPV6_MROUTE, RTNLGRP_IPV6_ROUTE, RTNLGRP_IPV6_IFINFO, RTNLGRP_DECnet_IFADDR, RTNLGRP_NOP2, RTNLGRP_DECnet_ROUTE, RTNLGRP_DECnet_RULE, RTNLGRP_NOP4, RTNLGRP_IPV6_PREFIX, RTNLGRP_IPV6_RULE, RTNLGRP_ND_USEROPT, RTNLGRP_PHONET_IFADDR, RTNLGRP_PHONET_ROUTE, RTNLGRP_DCB, RTNLGRP_IPV4_NETCONF, RTNLGRP_IPV6_NETCONF, RTNLGRP_MDB, RTNLGRP_MPLS_ROUTE, RTNLGRP_NSID, RTNLGRP_MPLS_NETCONF, RTNLGRP_IPV4_MROUTE_R, RTNLGRP_IPV6_MROUTE_R, RTNLGRP_NEXTHOP, RTNLGRP_BRVLAN, RTNLGRP_MCTP_IFADDR, RTNLGRP_TUNNEL, RTNLGRP_STATS, RTNLGRP_IPV4_MCADDR, RTNLGRP_IPV6_MCADDR, RTNLGRP_IPV6_ACADDR, __RTNLGRP_MAX };
-
-const genlmsghdr = extern struct {
-    cmd: u8,
-    version: u8 = 1,
-    reserved: u16 = 0,
-};
 
 const socket = std.posix.socket;
 const write = std.posix.write;
