@@ -15,27 +15,10 @@ const rtgenmsg = extern struct {
     pub const packet: rtgenmsg = .{ .family = AF.PACKET };
 };
 
-//const nlmsghdr = std.os.linux.nlmsghdr;
-pub const nlmsghdr = extern struct {
-    len: u32,
-    type: std.os.linux.NetlinkMessageType,
-    flags: u16,
-    /// Sequence number
-    seq: u32,
-    /// Sending process port ID
-    pid: u32,
-
-    pub const dump_link: nlmsghdr = .{
-        .len = @sizeOf(nlmsghdr) + @sizeOf(rtgenmsg),
-        .type = .RTM_GETLINK,
-        .flags = std.os.linux.NLM_F_REQUEST | std.os.linux.NLM_F_ACK | std.os.linux.NLM_F_DUMP,
-        .seq = 1,
-        .pid = 0,
-    };
-};
+pub const nlmsghdr = NlMsgHdr(NetlinkMessageType);
 
 pub fn NlMsgHdr(T: anytype) type {
-    return struct {
+    return extern struct {
         len: u32,
         type: T,
         flags: u16,
@@ -145,11 +128,6 @@ pub const CTRL = struct {
     };
 };
 
-const nlattr = extern struct {
-    len: u16,
-    type: u16,
-};
-
 pub const nlmsgerr = extern struct {
     err: i32,
     msg: nlmsghdr,
@@ -160,15 +138,15 @@ pub fn nl80211() !void {
 
     const s = try socket(AF.NETLINK, SOCK.RAW, std.os.linux.NETLINK.GENERIC);
 
-    const full_size = (@sizeOf(nlmsghdr) + @sizeOf(genlmsghdr) + @sizeOf(nlattr) + 8 + 3) & ~@as(usize, 3);
+    const full_size = (@sizeOf(nlmsghdr) + @sizeOf(genlmsghdr) + @sizeOf(Attr(.nl80211).Header) + 8 + 3) & ~@as(usize, 3);
 
     var w_buffer: [full_size]u8 align(4) = undefined;
     var w_list: std.ArrayListUnmanaged(u8) = .initBuffer(&w_buffer);
     var w = w_list.fixedWriter();
 
-    const r_hdr: nlmsghdr = .{
+    const r_hdr: NlMsgHdr(GENL) = .{
         .len = full_size,
-        .type = @enumFromInt(@intFromEnum(GENL.ID_CTRL)),
+        .type = GENL.ID_CTRL,
         .flags = std.os.linux.NLM_F_REQUEST | std.os.linux.NLM_F_ACK,
         .seq = 1,
         .pid = 0,
@@ -180,9 +158,9 @@ pub fn nl80211() !void {
     };
     try w.writeStruct(r_genmsg);
 
-    const attr: nlattr = .{
+    const attr: Attr(.nl80211).Header = .{
         .len = 12,
-        .type = @intFromEnum(CTRL.ATTR.FAMILY_NAME),
+        .type = CTRL.ATTR.FAMILY_NAME,
     };
     try w.writeStruct(attr);
     try w.writeAll("nl80211");
@@ -430,15 +408,26 @@ pub fn route() !void {
 
     const s = try socket(AF.NETLINK, SOCK.RAW, std.os.linux.NETLINK.ROUTE);
 
-    const both_size = @sizeOf(nlmsghdr) + @sizeOf(rtgenmsg);
+    const full_size = @sizeOf(nlmsghdr) + @sizeOf(rtgenmsg);
 
-    var wbuffer: [both_size]u8 align(4) = undefined;
-    const r_hdr: *nlmsghdr = @ptrCast(wbuffer[0..]);
-    r_hdr.* = .dump_link;
-    const r_rtgen: *rtgenmsg = @ptrCast(wbuffer[@sizeOf(nlmsghdr)..]);
-    r_rtgen.* = .packet;
+    var w_buffer: [full_size]u8 align(4) = undefined;
+    var w_list: std.ArrayListUnmanaged(u8) = .initBuffer(&w_buffer);
+    var w = w_list.fixedWriter();
 
-    _ = try write(s, wbuffer[0..both_size]);
+    var hdr: NlMsgHdr(NetlinkMessageType) = .{
+        .len = @sizeOf(nlmsghdr) + @sizeOf(rtgenmsg),
+        .type = .RTM_GETLINK,
+        .flags = std.os.linux.NLM_F_REQUEST | std.os.linux.NLM_F_ACK | std.os.linux.NLM_F_DUMP,
+        .seq = 1,
+        .pid = 0,
+    };
+    try w.writeStruct(hdr);
+    const rtgen: rtgenmsg = .{
+        .family = AF.PACKET,
+    };
+    try w.writeStruct(rtgen);
+
+    _ = try write(s, w_list.items);
 
     // Netlink expects that the user buffer will be at least 8kB or a page size
     // of the CPU architecture, whichever is bigger. Particular Netlink families
@@ -466,10 +455,10 @@ pub fn route() !void {
             }
 
             try stdout.print("\n\n\n", .{});
-            const hdr: *nlmsghdr = @ptrCast(@alignCast(rbuffer[start..]));
-            const aligned: usize = hdr.len + 3 & ~@as(usize, 3);
+            const lhdr: *nlmsghdr = @ptrCast(@alignCast(rbuffer[start..]));
+            const aligned: usize = lhdr.len + 3 & ~@as(usize, 3);
 
-            switch (hdr.type) {
+            switch (lhdr.type) {
                 .RTM_NEWLINK => try dumpLink(stdout, rbuffer[start..][0..aligned]),
                 .RTM_NEWADDR => try dumpAddr(stdout, rbuffer[start..][0..aligned]),
                 .DONE => {
@@ -486,9 +475,13 @@ pub fn route() !void {
         }
     }
 
-    r_hdr.type = .RTM_GETADDR;
-    r_hdr.seq += 1;
-    _ = try write(s, wbuffer[0..both_size]);
+    hdr.type = .RTM_GETADDR;
+    hdr.seq += 1;
+    w_list.items.len = 0;
+    try w.writeStruct(hdr);
+    try w.writeStruct(rtgen);
+
+    _ = try write(s, w_list.items);
     nl_more = true;
 
     while (nl_more) {
@@ -501,10 +494,10 @@ pub fn route() !void {
             }
 
             try stdout.print("\n\n\n", .{});
-            const hdr: *nlmsghdr = @ptrCast(@alignCast(rbuffer[start..]));
-            const aligned: usize = hdr.len + 3 & ~@as(usize, 3);
+            const lhdr: *nlmsghdr = @ptrCast(@alignCast(rbuffer[start..]));
+            const aligned: usize = lhdr.len + 3 & ~@as(usize, 3);
 
-            switch (hdr.type) {
+            switch (lhdr.type) {
                 .RTM_NEWLINK => try dumpLink(stdout, rbuffer[start..][0..aligned]),
                 .RTM_NEWADDR => try dumpAddr(stdout, rbuffer[start..][0..aligned]),
                 .DONE => {
@@ -523,21 +516,6 @@ pub fn route() !void {
 
     try stdout.print("done\n", .{});
 }
-
-pub const rtattr = extern struct {
-    /// Length of option
-    len: c_ushort,
-
-    /// Type of option
-    type: packed union {
-        /// IFLA_* from linux/if_link.h
-        link: IFLA,
-        /// IFA_* from linux/if_addr.h
-        addr: IFA,
-    },
-
-    pub const ALIGNTO = 4;
-};
 
 pub const IFA = packed struct(u16) {
     type: Type,
@@ -774,11 +752,10 @@ fn dumpRtAttrAddr(stdout: anytype, data: []const u8) !void {
         const attr: Attr(.rtaddr) = try .init(@alignCast(data[offset2..]));
         switch (attr.type.type) {
             .LABEL => {
-                const name_len = attr.len - @sizeOf(rtattr);
                 const name: [:0]const u8 = attr.data[0 .. attr.data.len - 1 :0];
                 try stdout.print(
                     "name ({}) '{s}' {any} \n",
-                    .{ name_len, name, name },
+                    .{ name.len, name, name },
                 );
             },
             .ADDRESS,
@@ -792,8 +769,7 @@ fn dumpRtAttrAddr(stdout: anytype, data: []const u8) !void {
                     else => unreachable,
                 });
                 const int: u16 = @intFromEnum(attr.type.type);
-                const len = attr.len - @sizeOf(rtattr);
-                switch (len) {
+                switch (attr.data.len) {
                     4 => {
                         try stdout.print("{}.{}.{}.{}\n", .{
                             attr.data[0],
@@ -816,7 +792,7 @@ fn dumpRtAttrAddr(stdout: anytype, data: []const u8) !void {
                     },
                     else => {
                         try stdout.print("attr {}    {}    {b}\n", .{ attr.type.type, int, int });
-                        try stdout.print("len {} \n", .{len});
+                        try stdout.print("len {} \n", .{attr.data.len});
                     },
                 }
             },
@@ -841,9 +817,7 @@ fn dumpRtAttrAddr(stdout: anytype, data: []const u8) !void {
                 const int: u16 = @intFromEnum(attr.type.type);
                 try stdout.print("\n\n\n\nattr {}\n    {}    {b}\n", .{ attr.type.type, int, int });
                 try stdout.print("attr.len {}\n", .{attr.len});
-                const len = attr.len - @sizeOf(rtattr);
-                const attr_data: [*]const u8 = @ptrCast(@alignCast(attr.data.ptr));
-                try stdout.print("attr.data {any} \n\n\n", .{attr_data[0..len]});
+                try stdout.print("attr.data {any} \n\n\n", .{attr.data});
             },
         }
         offset2 += attr.len_aligned;
@@ -907,10 +881,9 @@ fn dumpRtAttrLink(stdout: anytype, data: []align(4) const u8) !void {
                 const int: u16 = @intFromEnum(attr.type.type);
                 try stdout.print("attr {}\n    {}    {b}\n", .{ attr.type.type, int, int });
                 try stdout.print("attr.len {}\n", .{attr.len});
-                const len = attr.len - @sizeOf(rtattr);
                 try stdout.print(
                     "state offset {} len {} total {} remain {} \n",
-                    .{ offset, len, attr.data.len, attr.data.len },
+                    .{ offset, attr.len, attr.data.len, attr.data.len },
                 );
                 try stdout.print("attr.data {any} \n", .{attr.data});
             },
