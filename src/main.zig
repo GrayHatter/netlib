@@ -150,35 +150,35 @@ pub fn nl80211() !void {
 
     const full_size = (@sizeOf(nlmsghdr) + @sizeOf(genlmsghdr) + @sizeOf(nlattr) + 8 + 3) & ~@as(usize, 3);
 
-    var wbuffer: [full_size]u8 align(4) = undefined;
-    const r_hdr: *nlmsghdr = @ptrCast(wbuffer[0..]);
-    r_hdr.* = .{
+    var w_buffer: [full_size]u8 align(4) = undefined;
+    var w_list: std.ArrayListUnmanaged(u8) = .initBuffer(&w_buffer);
+    var w = w_list.fixedWriter();
+
+    const r_hdr: nlmsghdr = .{
         .len = full_size,
         .type = @enumFromInt(@intFromEnum(GENL.ID_CTRL)),
         .flags = std.os.linux.NLM_F_REQUEST | std.os.linux.NLM_F_ACK,
         .seq = 1,
         .pid = 0,
     };
-    r_hdr.len = full_size;
-    const r_genmsg: *genlmsghdr = @ptrCast(wbuffer[@sizeOf(nlmsghdr)..]);
-    r_genmsg.* = .{
+    try w.writeStruct(r_hdr);
+
+    const r_genmsg: genlmsghdr = .{
         .cmd = @intFromEnum(CTRL.CMD.GETFAMILY),
     };
+    try w.writeStruct(r_genmsg);
 
-    const attr: *nlattr = @ptrCast(wbuffer[@sizeOf(nlmsghdr) + @sizeOf(genlmsghdr) ..]);
-    attr.* = .{
+    const attr: nlattr = .{
         .len = 12,
         .type = @intFromEnum(CTRL.ATTR.FAMILY_NAME),
     };
+    try w.writeStruct(attr);
+    try w.writeAll("nl80211");
+    try w.writeByte(0);
 
-    const str: *[7:0]u8 = @ptrCast(wbuffer[@sizeOf(nlmsghdr) + @sizeOf(genlmsghdr) + @sizeOf(nlattr) ..]);
-    str.* = "nl80211".*;
+    _ = try write(s, w_list.items);
 
-    _ = try write(s, wbuffer[0..]);
-
-    try stdout.print("{any}\n", .{wbuffer});
-
-    //offset += (attr.len + 3 & ~@as(usize, 3)) - @sizeOf(rtattr);
+    try stdout.print("{any}\n", .{w_list.items});
 
     var rbuffer: [0x8000]u8 align(4) = undefined;
 
