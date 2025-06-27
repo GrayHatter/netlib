@@ -34,6 +34,18 @@ pub const nlmsghdr = extern struct {
     };
 };
 
+pub fn NlMsgHdr(T: anytype) type {
+    return struct {
+        len: u32,
+        type: T,
+        flags: u16,
+        /// Sequence number
+        seq: u32,
+        /// Sending process port ID
+        pid: u32,
+    };
+}
+
 pub const NetlinkMessageType = std.os.linux.NetlinkMessageType;
 
 pub fn Attr(T: enum { rtlink, rtaddr, ge, nl80211 }) type {
