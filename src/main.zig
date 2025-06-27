@@ -34,6 +34,45 @@ pub const nlmsghdr = extern struct {
     };
 };
 
+pub const NetlinkMessageType = std.os.linux.NetlinkMessageType;
+
+pub fn Attr(T: enum { rtlink, rtaddr, ge, nl80211 }) type {
+    return struct {
+        len: u16,
+        type: AttrType,
+        data: []align(4) const u8,
+        /// The payload size reflects struct + data, but the whole message must
+        /// be 4 aligned. len_aligned is provided for convenience.
+        len_aligned: u16,
+
+        pub const Header = packed struct {
+            len: u16,
+            type: AttrType,
+        };
+
+        pub const AttrType = switch (T) {
+            .rtaddr => IFA,
+            .rtlink => IFLA,
+            .ge => u16,
+            .nl80211 => CTRL.ATTR,
+        };
+
+        pub const Self = @This();
+
+        pub fn init(data: []align(4) const u8) !Self {
+            const len: *const u16 = @ptrCast(data[0..2]);
+            if (len.* > data.len or len.* < 4) return error.MalformedAttr;
+            const type_: *const AttrType = @ptrCast(data[2..4]);
+            return .{
+                .len = len.*,
+                .type = type_.*,
+                .data = data[4..][0 .. len.* - 4],
+                .len_aligned = len.* + 3 & ~@as(u16, 3),
+            };
+        }
+    };
+}
+
 pub fn main() !void {
     var args = std.process.args();
     const arg0 = args.next() orelse usage("wat?!");
@@ -41,10 +80,13 @@ pub fn main() !void {
     while (args.next()) |arg| {
         if (startsWith(u8, arg, "--")) {
             usage(arg0);
+        } else if (eql(u8, arg, "nl80211")) {
+            return try nl80211();
+        } else {
+            return try route();
         }
     }
-
-    try nl80211();
+    return usage(arg0);
 }
 pub const genlmsghdr = extern struct {
     cmd: u8,
@@ -359,19 +401,15 @@ pub fn dumpNl80211(stdout: anytype, data: []align(4) const u8) !void {
     offset += @sizeOf(genlmsghdr);
 
     while (offset < data.len) {
-        const attr: *const nlattr = @ptrCast(@alignCast(data[offset..]));
-        offset += @sizeOf(nlattr);
-        switch (@as(CTRL.ATTR, @enumFromInt(attr.type))) {
+        const attr: Attr(.nl80211) = try .init(@alignCast(data[offset..]));
+        switch (attr.type) {
             else => {
-                const tag: CTRL.ATTR = @enumFromInt(attr.type);
-                try stdout.print("\n\n\n\nattr {}\n    {}    {b}\n", .{ tag, attr.type, attr.type });
+                try stdout.print("\n\n\n\nattr {}\n    {}    {b}\n", .{ attr.type, @intFromEnum(attr.type), @intFromEnum(attr.type) });
                 try stdout.print("attr.len {}\n", .{attr.len});
-                const len = attr.len - @sizeOf(nlattr);
-                const attr_data: [*]const u8 = @ptrCast(@alignCast(data[offset..]));
-                try stdout.print("attr.data {any} \n\n\n", .{attr_data[0..len]});
+                try stdout.print("attr.data {any} \n\n\n", .{attr.data});
             },
         }
-        offset += (attr.len + 3 & ~@as(usize, 3)) - @sizeOf(nlattr);
+        offset += attr.len_aligned;
     }
 }
 
@@ -718,16 +756,14 @@ pub const IFLA = packed struct(u16) {
 };
 
 fn dumpRtAttrAddr(stdout: anytype, data: []const u8) !void {
-    var offset: usize = 0;
+    var offset2: usize = 0;
     //const rtattr = std.os.linux.rtattr;
-    while (offset < data.len) {
-        const attr: *const rtattr = @ptrCast(@alignCast(data[offset..]));
-        offset += @sizeOf(rtattr);
-        switch (attr.type.addr.type) {
+    while (offset2 < data.len) {
+        const attr: Attr(.rtaddr) = try .init(@alignCast(data[offset2..]));
+        switch (attr.type.type) {
             .LABEL => {
                 const name_len = attr.len - @sizeOf(rtattr);
-                const nameptr: [*]const u8 = @ptrCast(@alignCast(data[offset..]));
-                const name: [:0]const u8 = nameptr[0 .. name_len - 1 :0];
+                const name: [:0]const u8 = attr.data[0 .. attr.data.len - 1 :0];
                 try stdout.print(
                     "name ({}) '{s}' {any} \n",
                     .{ name_len, name, name },
@@ -743,93 +779,86 @@ fn dumpRtAttrAddr(stdout: anytype, data: []const u8) !void {
                     .LOCAL => "local ",
                     else => unreachable,
                 });
-                const int: u16 = @intFromEnum(attr.type.addr.type);
+                const int: u16 = @intFromEnum(attr.type.type);
                 const len = attr.len - @sizeOf(rtattr);
-                const attr_data: [*]const u8 = @ptrCast(@alignCast(data[offset..]));
                 switch (len) {
                     4 => {
                         try stdout.print("{}.{}.{}.{}\n", .{
-                            attr_data[0],
-                            attr_data[1],
-                            attr_data[2],
-                            attr_data[3],
+                            attr.data[0],
+                            attr.data[1],
+                            attr.data[2],
+                            attr.data[3],
                         });
                     },
                     16 => {
                         try stdout.print("{}:{}:{}:{}:{}:{}:{}:{}\n", .{
-                            std.fmt.fmtSliceHexLower(attr_data[0..][0..2]),
-                            std.fmt.fmtSliceHexLower(attr_data[2..][0..2]),
-                            std.fmt.fmtSliceHexLower(attr_data[4..][0..2]),
-                            std.fmt.fmtSliceHexLower(attr_data[6..][0..2]),
-                            std.fmt.fmtSliceHexLower(attr_data[8..][0..2]),
-                            std.fmt.fmtSliceHexLower(attr_data[10..][0..2]),
-                            std.fmt.fmtSliceHexLower(attr_data[12..][0..2]),
-                            std.fmt.fmtSliceHexLower(attr_data[14..][0..2]),
+                            std.fmt.fmtSliceHexLower(attr.data[0..][0..2]),
+                            std.fmt.fmtSliceHexLower(attr.data[2..][0..2]),
+                            std.fmt.fmtSliceHexLower(attr.data[4..][0..2]),
+                            std.fmt.fmtSliceHexLower(attr.data[6..][0..2]),
+                            std.fmt.fmtSliceHexLower(attr.data[8..][0..2]),
+                            std.fmt.fmtSliceHexLower(attr.data[10..][0..2]),
+                            std.fmt.fmtSliceHexLower(attr.data[12..][0..2]),
+                            std.fmt.fmtSliceHexLower(attr.data[14..][0..2]),
                         });
                     },
                     else => {
-                        try stdout.print("attr {}    {}    {b}\n", .{ attr.type.addr.type, int, int });
+                        try stdout.print("attr {}    {}    {b}\n", .{ attr.type.type, int, int });
                         try stdout.print("len {} \n", .{len});
                     },
                 }
             },
             .CACHEINFO => {
-                const cinfo: *align(4) const ifa_cacheinfo = @alignCast(@ptrCast(data[offset..].ptr));
+                const cinfo: *align(4) const ifa_cacheinfo = @alignCast(@ptrCast(attr.data.ptr));
                 try stdout.print("cacheinfo {} \n", .{cinfo.*});
             },
             .FLAGS => {
-                const flags: *align(4) const IFA_FLAGS = @alignCast(@ptrCast(data[offset..].ptr));
+                const flags: *align(4) const IFA_FLAGS = @alignCast(@ptrCast(attr.data.ptr));
                 try stdout.print("flags {} \n", .{flags.*});
             },
             .PROTO => {
-                const prot: *align(4) const ifa_proto = @alignCast(@ptrCast(data[offset..].ptr));
+                const prot: *align(4) const ifa_proto = @alignCast(@ptrCast(attr.data.ptr));
                 try stdout.print("prot {} \n", .{prot.*});
             },
             .RT_PRIORITY => {
-                const pri: *align(4) const u32 = @alignCast(@ptrCast(data[offset..].ptr));
+                const pri: *align(4) const u32 = @alignCast(@ptrCast(attr.data.ptr));
                 try stdout.print("rt pri {} \n", .{pri.*});
             },
 
             else => {
-                const int: u16 = @intFromEnum(attr.type.addr.type);
-                try stdout.print("\n\n\n\nattr {}\n    {}    {b}\n", .{ attr.type.addr.type, int, int });
+                const int: u16 = @intFromEnum(attr.type.type);
+                try stdout.print("\n\n\n\nattr {}\n    {}    {b}\n", .{ attr.type.type, int, int });
                 try stdout.print("attr.len {}\n", .{attr.len});
                 const len = attr.len - @sizeOf(rtattr);
-                const attr_data: [*]const u8 = @ptrCast(@alignCast(data[offset..]));
+                const attr_data: [*]const u8 = @ptrCast(@alignCast(attr.data.ptr));
                 try stdout.print("attr.data {any} \n\n\n", .{attr_data[0..len]});
             },
         }
-        offset += (attr.len + 3 & ~@as(usize, 3)) - @sizeOf(rtattr);
+        offset2 += attr.len_aligned;
     }
 }
 
-fn dumpRtAttrLink(stdout: anytype, data: []const u8) !void {
+fn dumpRtAttrLink(stdout: anytype, data: []align(4) const u8) !void {
     var offset: usize = 0;
-    //const rtattr = std.os.linux.rtattr;
     while (offset < data.len) {
-        const attr: *const rtattr = @ptrCast(@alignCast(data[offset..]));
-        offset += @sizeOf(rtattr);
-        switch (attr.type.link.type) {
+        const attr: Attr(.rtlink) = try .init(@alignCast(data[offset..]));
+        switch (attr.type.type) {
             .QDISC => {
-                const name_len = attr.len - @sizeOf(rtattr);
-                const nameptr: [*]const u8 = @ptrCast(@alignCast(data[offset..]));
-                const name: [:0]const u8 = nameptr[0 .. name_len - 1 :0];
+                const name: [:0]const u8 = attr.data[0 .. attr.data.len - 1 :0];
                 try stdout.print(
                     "QDISC ({}) '{s}' {any} \n",
-                    .{ name_len, name, name },
+                    .{ name.len, name, name },
                 );
             },
             .IFNAME => {
-                const name_len = attr.len - @sizeOf(rtattr);
-                const nameptr: [*]const u8 = @ptrCast(@alignCast(data[offset..]));
-                const name: [:0]const u8 = nameptr[0 .. name_len - 1 :0];
+                const name: [:0]const u8 = attr.data[0 .. attr.data.len - 1 :0];
                 try stdout.print(
                     "name ({}) '{s}' {any} \n",
-                    .{ name_len, name, name },
+                    .{ name.len, name, name },
                 );
             },
             .AF_SPEC => {
-                try stdout.print("attr {}\n", .{attr.type.link.type});
+                try stdout.print("attr {}\n", .{attr.type.type});
                 try stdout.print("attr.len {}\n", .{attr.len});
             },
             .STATS => {},
@@ -837,63 +866,59 @@ fn dumpRtAttrLink(stdout: anytype, data: []const u8) !void {
                 const stats64 = std.os.linux.rtnl_link_stats64;
                 var stats: stats64 = undefined;
                 const sbytes = std.mem.asBytes(&stats);
-                const len = @min(attr.len - @sizeOf(rtattr), sbytes.len);
-                @memcpy(sbytes[0..len], data[offset..][0..len]);
+                std.debug.print("{} vs {}\n", .{ sbytes.len, attr.data.len });
+                if (data.len < sbytes.len) return error.MalformedAttr;
+                @memcpy(sbytes, attr.data[0..sbytes.len]);
                 try stdout.print("stats {} \n", .{stats});
             },
             .BROADCAST, .ADDRESS => {
-                const int: u16 = @intFromEnum(attr.type.link.type);
-                try stdout.print("attr {}    {}    {b}\n", .{ attr.type.link.type, int, int });
-                const len = attr.len - @sizeOf(rtattr);
-                const attr_data: [*]const u8 = @ptrCast(@alignCast(data[offset..]));
-                switch (len) {
+                const int: u16 = @intFromEnum(attr.type.type);
+                try stdout.print("attr {}    {}    {b}\n", .{ attr.type.type, int, int });
+                switch (attr.data.len) {
                     6 => {
-                        try stdout.print("    {}:{}:{}:{}:{}\n", .{
-                            std.fmt.fmtSliceHexLower(attr_data[0..][0..1]),
-                            std.fmt.fmtSliceHexLower(attr_data[2..][0..1]),
-                            std.fmt.fmtSliceHexLower(attr_data[4..][0..1]),
-                            std.fmt.fmtSliceHexLower(attr_data[6..][0..1]),
-                            std.fmt.fmtSliceHexLower(attr_data[8..][0..1]),
+                        try stdout.print("    {x}:{x}:{x}:{x}:{x}:{x}\n", .{
+                            attr.data[0], attr.data[1], attr.data[2],
+                            attr.data[3], attr.data[4], attr.data[5],
                         });
                     },
                     else => {
-                        try stdout.print("    len {} \n", .{len});
+                        try stdout.print("    len {} \n", .{attr.data.len});
                     },
                 }
             },
             .MAP => {
                 const link_ifmap = std.os.linux.rtnl_link_ifmap;
-                const ifmap: *align(4) const link_ifmap = @alignCast(@ptrCast(data[offset..].ptr));
+                const ifmap: *align(4) const link_ifmap = @alignCast(@ptrCast(attr.data.ptr));
                 try stdout.print("ifmap {} \n", .{ifmap.*});
             },
             .WIRELESS => {
-                const int: u16 = @intFromEnum(attr.type.link.type);
-                try stdout.print("attr {}\n    {}    {b}\n", .{ attr.type.link.type, int, int });
+                const int: u16 = @intFromEnum(attr.type.type);
+                try stdout.print("attr {}\n    {}    {b}\n", .{ attr.type.type, int, int });
                 try stdout.print("attr.len {}\n", .{attr.len});
                 const len = attr.len - @sizeOf(rtattr);
-                const attr_data: [*]const u8 = @ptrCast(@alignCast(data[offset..]));
-                try stdout.print("state offset {} len {} total {} remain {} \n", .{ offset, len, data.len, data[offset..].len });
-                try stdout.print("attr.data {any} \n", .{attr_data[0..len]});
+                try stdout.print(
+                    "state offset {} len {} total {} remain {} \n",
+                    .{ offset, len, attr.data.len, attr.data.len },
+                );
+                try stdout.print("attr.data {any} \n", .{attr.data});
             },
             else => {
-                const int: u16 = @intFromEnum(attr.type.link.type);
+                const int: u16 = @intFromEnum(attr.type.type);
                 try stdout.print(
                     "attr {} (nested {}) (nbo {}) {} {b} [len: {}]\n",
                     .{
-                        attr.type.link.type,
-                        attr.type.link.nested,
-                        attr.type.link.byte_order,
+                        attr.type.type,
+                        attr.type.nested,
+                        attr.type.byte_order,
                         int,
                         int,
                         attr.len - 4,
                     },
                 );
-                const len = attr.len - @sizeOf(rtattr);
-                const attr_data: [*]const u8 = @ptrCast(@alignCast(data[offset..]));
-                try stdout.print("    data {any} \n", .{attr_data[0..len]});
+                try stdout.print("    data {any} \n", .{attr.data});
             },
         }
-        offset += (attr.len + 3 & ~@as(usize, 3)) - @sizeOf(rtattr);
+        offset += attr.len_aligned;
     }
 }
 
@@ -915,7 +940,7 @@ fn dumpLink(stdout: anytype, data: []const u8) !void {
     const link: *const ifinfomsg = @ptrCast(@alignCast(data[offset..]));
     try stdout.print("link {}\n", .{link});
     offset += @sizeOf(ifinfomsg);
-    try dumpRtAttrLink(stdout, data[offset..]);
+    try dumpRtAttrLink(stdout, @alignCast(data[offset..]));
 }
 
 //      RTM_NEWLINK
