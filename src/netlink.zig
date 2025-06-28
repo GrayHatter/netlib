@@ -1,17 +1,78 @@
 pub const MsgType = std.os.linux.NetlinkMessageType;
 pub const nl80211 = @import("nl80211.zig");
 
-pub fn MsgHdr(T: anytype) type {
+pub fn MsgHdr(T: type, Flags: type) type {
     return extern struct {
         len: u32,
         type: T,
-        flags: u16,
+        flags: Flags,
         /// Sequence number
         seq: u32,
         /// Sending process port ID
         pid: u32,
     };
 }
+
+pub const HdrFlags = enum { get, new, delete, ack };
+
+pub const HeaderFlags = struct {
+    pub const Get = packed struct(u16) {
+        REQUEST: bool = false, // 0x01 /* It is request message.  */
+        MULTI: bool = false, // 0x02 /* Multipart message, terminated by NLMSG_DONE */
+        ACK: bool = false, // 0x04 /* Reply with ack, with zero or error code */
+        ECHO: bool = false, // 0x08 /* Receive resulting notifications */
+        DUMP_INTR: bool = false, // 0x10 /* Dump was inconsistent due to sequence change */
+        DUMP_FILTERED: bool = false, // 0x20 /* Dump was filtered as requested */
+        __padding: u2 = 0,
+
+        ROOT: bool = false, // 0x100 /* specify tree root */
+        MATCH: bool = false, // 0x200 /* return all matching */
+        ATOMIC: bool = false, // 0x400 /* atomic GET  */
+        ___padding: u5 = 0,
+    };
+
+    pub const New = packed struct(u16) {
+        REQUEST: bool = false, // 0x01 /* It is request message.  */
+        MULTI: bool = false, // 0x02 /* Multipart message, terminated by NLMSG_DONE */
+        ACK: bool = false, // 0x04 /* Reply with ack, with zero or error code */
+        ECHO: bool = false, // 0x08 /* Receive resulting notifications */
+        DUMP_INTR: bool = false, // 0x10 /* Dump was inconsistent due to sequence change */
+        DUMP_FILTERED: bool = false, // 0x20 /* Dump was filtered as requested */
+        __padding: u2 = 0,
+
+        REPLACE: bool = false, // 0x100 /* Override existing  */
+        EXCL: bool = false, // 0x200 /* Do not touch, if it exists */
+        CREATE: bool = false, // 0x400 /* Create, if it does not exist */
+        APPEND: bool = false, // 0x800 /* Add to end of list  */
+        ___padding: u4 = 0,
+    };
+    pub const Delete = packed struct(u16) {
+        REQUEST: bool = false, // 0x01 /* It is request message.  */
+        MULTI: bool = false, // 0x02 /* Multipart message, terminated by NLMSG_DONE */
+        ACK: bool = false, // 0x04 /* Reply with ack, with zero or error code */
+        ECHO: bool = false, // 0x08 /* Receive resulting notifications */
+        DUMP_INTR: bool = false, // 0x10 /* Dump was inconsistent due to sequence change */
+        DUMP_FILTERED: bool = false, // 0x20 /* Dump was filtered as requested */
+        __padding: u2 = 0,
+
+        NONREC: bool = false, // 0x100 /* Do not delete recursively */
+        BULK: bool = false, // 0x200 /* Delete multiple objects */
+        ___padding: u6 = 0,
+    };
+    pub const Ack = packed struct(u16) {
+        REQUEST: bool = false, // 0x01 /* It is request message.  */
+        MULTI: bool = false, // 0x02 /* Multipart message, terminated by NLMSG_DONE */
+        ACK: bool = false, // 0x04 /* Reply with ack, with zero or error code */
+        ECHO: bool = false, // 0x08 /* Receive resulting notifications */
+        DUMP_INTR: bool = false, // 0x10 /* Dump was inconsistent due to sequence change */
+        DUMP_FILTERED: bool = false, // 0x20 /* Dump was filtered as requested */
+        __padding: u2 = 0,
+
+        CAPPED: bool = false, // 0x100 /* request was capped */
+        ACK_TLVS: bool = false, // 0x200 /* extended ACK TVLs were included */
+        ___padding: u6 = 0,
+    };
+};
 
 pub fn Attr(T: enum { rtlink, rtaddr, genl }) type {
     return struct {

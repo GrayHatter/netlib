@@ -11,7 +11,7 @@ fn usage(arg0: []const u8) noreturn {
 
 var debug: bool = false;
 
-pub const nlmsghdr = netlink.MsgHdr(netlink.MsgType);
+pub const nlmsghdr = netlink.MsgHdr(netlink.MsgType, netlink.HeaderFlags.Get);
 
 pub const IfLink = struct {
     index: u32,
@@ -177,10 +177,15 @@ pub fn route() !void {
     var w_list: std.ArrayListUnmanaged(u8) = .initBuffer(&w_buffer);
     var w = w_list.fixedWriter();
 
-    var hdr: netlink.MsgHdr(netlink.MsgType) = .{
+    var hdr: netlink.MsgHdr(netlink.MsgType, netlink.HeaderFlags.Get) = .{
         .len = @sizeOf(nlmsghdr) + @sizeOf(netlink.route.GenMsg),
         .type = .RTM_GETLINK,
-        .flags = std.os.linux.NLM_F_REQUEST | std.os.linux.NLM_F_ACK | std.os.linux.NLM_F_DUMP,
+        .flags = .{
+            .REQUEST = true,
+            .ACK = true,
+            .ROOT = true,
+            .MATCH = true,
+        },
         .seq = 1,
         .pid = 0,
     };
