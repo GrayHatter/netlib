@@ -12,8 +12,28 @@ pub fn MsgHdr(T: anytype) type {
     };
 }
 
+pub const route = struct {
+    pub const GenMsg = extern struct {
+        family: u8,
+
+        pub const packet: GenMsg = .{ .family = AF.PACKET };
+    };
+};
+
+pub const generic = struct {
+    pub const MsgHdr = extern struct {
+        cmd: u8,
+        version: u8 = 2,
+        reserved: u16 = 0,
+    };
+
+    pub const GENL = enum(u8) {
+        ID_CTRL = std.os.linux.NetlinkMessageType.MIN_TYPE,
+        ID_VFS_DQUOT,
+        ID_PMCRAID,
+        START_ALLOC,
+    };
+};
+
 const std = @import("std");
-
-pub const Route = struct {};
-
-pub const Generic = struct {};
+const AF = std.posix.AF;

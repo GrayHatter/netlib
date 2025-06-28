@@ -9,12 +9,6 @@ fn usage(arg0: []const u8) noreturn {
     std.posix.exit(1);
 }
 
-const rtgenmsg = extern struct {
-    family: u8,
-
-    pub const packet: rtgenmsg = .{ .family = AF.PACKET };
-};
-
 pub const netlink = @import("netlink.zig");
 
 pub const nlmsghdr = netlink.MsgHdr(netlink.MsgType);
@@ -71,18 +65,6 @@ pub fn main() !void {
     }
     return usage(arg0);
 }
-pub const genlmsghdr = extern struct {
-    cmd: u8,
-    version: u8 = 2,
-    reserved: u16 = 0,
-};
-
-const GENL = enum(u8) {
-    ID_CTRL = std.os.linux.NetlinkMessageType.MIN_TYPE,
-    ID_VFS_DQUOT,
-    ID_PMCRAID,
-    START_ALLOC,
-};
 
 pub const CTRL = struct {
     pub const ATTR = enum(u16) {
@@ -126,22 +108,22 @@ pub fn nl80211SendMsg() !void {
 
     const s = try socket(AF.NETLINK, SOCK.RAW, std.os.linux.NETLINK.GENERIC);
 
-    const full_size = (@sizeOf(nlmsghdr) + @sizeOf(genlmsghdr) + @sizeOf(Attr(.nl80211).Header) + 8 + 3) & ~@as(usize, 3);
+    const full_size = (@sizeOf(nlmsghdr) + @sizeOf(netlink.generic.MsgHdr) + @sizeOf(Attr(.nl80211).Header) + 8 + 3) & ~@as(usize, 3);
 
     var w_buffer: [full_size]u8 align(4) = undefined;
     var w_list: std.ArrayListUnmanaged(u8) = .initBuffer(&w_buffer);
     var w = w_list.fixedWriter();
 
-    const r_hdr: netlink.MsgHdr(GENL) = .{
+    const r_hdr: netlink.MsgHdr(netlink.generic.GENL) = .{
         .len = full_size,
-        .type = GENL.ID_CTRL,
+        .type = .ID_CTRL,
         .flags = std.os.linux.NLM_F_REQUEST | std.os.linux.NLM_F_ACK,
         .seq = 1,
         .pid = 0,
     };
     try w.writeStruct(r_hdr);
 
-    const r_genmsg: genlmsghdr = .{
+    const r_genmsg: netlink.generic.MsgHdr = .{
         .cmd = @intFromEnum(CTRL.CMD.GETFAMILY),
     };
     try w.writeStruct(r_genmsg);
@@ -206,9 +188,9 @@ pub const nl80211 = @import("nl80211.zig");
 pub fn dumpNl80211(stdout: anytype, data: []align(4) const u8) !void {
     var offset: usize = 0;
     //const rtattr = std.os.linux.rtattr;
-    const genlmsg: *align(4) const genlmsghdr = @ptrCast(@alignCast(data[offset..]));
+    const genlmsg: *align(4) const netlink.generic.MsgHdr = @ptrCast(@alignCast(data[offset..]));
     try stdout.print("genl {any}\n", .{genlmsg});
-    offset += @sizeOf(genlmsghdr);
+    offset += @sizeOf(netlink.generic.MsgHdr);
 
     while (offset < data.len) {
         const attr: Attr(.nl80211) = try .init(@alignCast(data[offset..]));
@@ -228,21 +210,21 @@ pub fn route() !void {
 
     const s = try socket(AF.NETLINK, SOCK.RAW, std.os.linux.NETLINK.ROUTE);
 
-    const full_size = @sizeOf(nlmsghdr) + @sizeOf(rtgenmsg);
+    const full_size = @sizeOf(nlmsghdr) + @sizeOf(netlink.route.GenMsg);
 
     var w_buffer: [full_size]u8 align(4) = undefined;
     var w_list: std.ArrayListUnmanaged(u8) = .initBuffer(&w_buffer);
     var w = w_list.fixedWriter();
 
     var hdr: netlink.MsgHdr(netlink.MsgType) = .{
-        .len = @sizeOf(nlmsghdr) + @sizeOf(rtgenmsg),
+        .len = @sizeOf(nlmsghdr) + @sizeOf(netlink.route.GenMsg),
         .type = .RTM_GETLINK,
         .flags = std.os.linux.NLM_F_REQUEST | std.os.linux.NLM_F_ACK | std.os.linux.NLM_F_DUMP,
         .seq = 1,
         .pid = 0,
     };
     try w.writeStruct(hdr);
-    const rtgen: rtgenmsg = .{
+    const rtgen: netlink.route.GenMsg = .{
         .family = AF.PACKET,
     };
     try w.writeStruct(rtgen);
