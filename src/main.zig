@@ -13,7 +13,7 @@ pub const netlink = @import("netlink.zig");
 
 pub const nlmsghdr = netlink.MsgHdr(netlink.MsgType);
 
-pub fn Attr(T: enum { rtlink, rtaddr, ge, nl80211 }) type {
+pub fn Attr(T: enum { rtlink, rtaddr, genl }) type {
     return struct {
         len: u16,
         type: AttrType,
@@ -30,8 +30,7 @@ pub fn Attr(T: enum { rtlink, rtaddr, ge, nl80211 }) type {
         pub const AttrType = switch (T) {
             .rtaddr => IFA,
             .rtlink => IFLA,
-            .ge => u16,
-            .nl80211 => CTRL.ATTR,
+            .genl => netlink.generic.Ctrl.Attr,
         };
 
         pub const Self = @This();
@@ -66,38 +65,6 @@ pub fn main() !void {
     return usage(arg0);
 }
 
-pub const CTRL = struct {
-    pub const ATTR = enum(u16) {
-        UNSPEC,
-        FAMILY_ID,
-        FAMILY_NAME,
-        VERSION,
-        HDRSIZE,
-        MAXATTR,
-        OPS,
-        MCAST_GROUPS,
-        POLICY,
-        OP_POLICY,
-        OP,
-        __CTRL_ATTR_MAX,
-    };
-
-    pub const CMD = enum(u8) {
-        UNSPEC,
-        NEWFAMILY,
-        DELFAMILY,
-        GETFAMILY,
-        NEWOPS,
-        DELOPS,
-        GETOPS,
-        NEWMCAST_GRP,
-        DELMCAST_GRP,
-        GETMCAST_GRP,
-        GETPOLICY,
-        __MAX,
-    };
-};
-
 pub const nlmsgerr = extern struct {
     err: i32,
     msg: nlmsghdr,
@@ -108,29 +75,29 @@ pub fn nl80211SendMsg() !void {
 
     const s = try socket(AF.NETLINK, SOCK.RAW, std.os.linux.NETLINK.GENERIC);
 
-    const full_size = (@sizeOf(nlmsghdr) + @sizeOf(netlink.generic.MsgHdr) + @sizeOf(Attr(.nl80211).Header) + 8 + 3) & ~@as(usize, 3);
+    const full_size = (@sizeOf(nlmsghdr) + @sizeOf(netlink.generic.MsgHdr) + @sizeOf(Attr(.genl).Header) + 8 + 3) & ~@as(usize, 3);
 
     var w_buffer: [full_size]u8 align(4) = undefined;
     var w_list: std.ArrayListUnmanaged(u8) = .initBuffer(&w_buffer);
     var w = w_list.fixedWriter();
 
-    const r_hdr: netlink.MsgHdr(netlink.generic.GENL) = .{
+    const req_hdr: netlink.MsgHdr(netlink.generic.GENL) = .{
         .len = full_size,
         .type = .ID_CTRL,
         .flags = std.os.linux.NLM_F_REQUEST | std.os.linux.NLM_F_ACK,
         .seq = 1,
         .pid = 0,
     };
-    try w.writeStruct(r_hdr);
+    try w.writeStruct(req_hdr);
 
     const r_genmsg: netlink.generic.MsgHdr = .{
-        .cmd = @intFromEnum(CTRL.CMD.GETFAMILY),
+        .cmd = .GETFAMILY,
     };
     try w.writeStruct(r_genmsg);
 
-    const attr: Attr(.nl80211).Header = .{
+    const attr: Attr(.genl).Header = .{
         .len = 12,
-        .type = CTRL.ATTR.FAMILY_NAME,
+        .type = .FAMILY_NAME,
     };
     try w.writeStruct(attr);
     try w.writeAll("nl80211");
@@ -183,8 +150,6 @@ pub fn nl80211SendMsg() !void {
     try stdout.print("done\n", .{});
 }
 
-pub const nl80211 = @import("nl80211.zig");
-
 pub fn dumpNl80211(stdout: anytype, data: []align(4) const u8) !void {
     var offset: usize = 0;
     //const rtattr = std.os.linux.rtattr;
@@ -193,7 +158,7 @@ pub fn dumpNl80211(stdout: anytype, data: []align(4) const u8) !void {
     offset += @sizeOf(netlink.generic.MsgHdr);
 
     while (offset < data.len) {
-        const attr: Attr(.nl80211) = try .init(@alignCast(data[offset..]));
+        const attr: Attr(.genl) = try .init(@alignCast(data[offset..]));
         switch (attr.type) {
             else => {
                 try stdout.print("\n\n\n\nattr {}\n    {}    {b}\n", .{ attr.type, @intFromEnum(attr.type), @intFromEnum(attr.type) });

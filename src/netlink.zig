@@ -1,4 +1,5 @@
 pub const MsgType = std.os.linux.NetlinkMessageType;
+pub const nl80211 = @import("nl80211.zig");
 
 pub fn MsgHdr(T: anytype) type {
     return extern struct {
@@ -22,9 +23,41 @@ pub const route = struct {
 
 pub const generic = struct {
     pub const MsgHdr = extern struct {
-        cmd: u8,
+        cmd: Ctrl.Cmd,
         version: u8 = 2,
         reserved: u16 = 0,
+    };
+
+    pub const Ctrl = struct {
+        pub const Attr = enum(u16) {
+            UNSPEC,
+            FAMILY_ID,
+            FAMILY_NAME,
+            VERSION,
+            HDRSIZE,
+            MAXATTR,
+            OPS,
+            MCAST_GROUPS,
+            POLICY,
+            OP_POLICY,
+            OP,
+            __CTRL_ATTR_MAX,
+        };
+
+        pub const Cmd = enum(u8) {
+            UNSPEC,
+            NEWFAMILY,
+            DELFAMILY,
+            GETFAMILY,
+            NEWOPS,
+            DELOPS,
+            GETOPS,
+            NEWMCAST_GRP,
+            DELMCAST_GRP,
+            GETMCAST_GRP,
+            GETPOLICY,
+            __MAX,
+        };
     };
 
     pub const GENL = enum(u8) {
