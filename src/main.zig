@@ -15,21 +15,9 @@ const rtgenmsg = extern struct {
     pub const packet: rtgenmsg = .{ .family = AF.PACKET };
 };
 
-pub const nlmsghdr = NlMsgHdr(NetlinkMessageType);
+pub const netlink = @import("netlink.zig");
 
-pub fn NlMsgHdr(T: anytype) type {
-    return extern struct {
-        len: u32,
-        type: T,
-        flags: u16,
-        /// Sequence number
-        seq: u32,
-        /// Sending process port ID
-        pid: u32,
-    };
-}
-
-pub const NetlinkMessageType = std.os.linux.NetlinkMessageType;
+pub const nlmsghdr = netlink.MsgHdr(netlink.MsgType);
 
 pub fn Attr(T: enum { rtlink, rtaddr, ge, nl80211 }) type {
     return struct {
@@ -144,7 +132,7 @@ pub fn nl80211SendMsg() !void {
     var w_list: std.ArrayListUnmanaged(u8) = .initBuffer(&w_buffer);
     var w = w_list.fixedWriter();
 
-    const r_hdr: NlMsgHdr(GENL) = .{
+    const r_hdr: netlink.MsgHdr(GENL) = .{
         .len = full_size,
         .type = GENL.ID_CTRL,
         .flags = std.os.linux.NLM_F_REQUEST | std.os.linux.NLM_F_ACK,
@@ -246,7 +234,7 @@ pub fn route() !void {
     var w_list: std.ArrayListUnmanaged(u8) = .initBuffer(&w_buffer);
     var w = w_list.fixedWriter();
 
-    var hdr: NlMsgHdr(NetlinkMessageType) = .{
+    var hdr: netlink.MsgHdr(netlink.MsgType) = .{
         .len = @sizeOf(nlmsghdr) + @sizeOf(rtgenmsg),
         .type = .RTM_GETLINK,
         .flags = std.os.linux.NLM_F_REQUEST | std.os.linux.NLM_F_ACK | std.os.linux.NLM_F_DUMP,
@@ -759,56 +747,6 @@ fn dumpLink(stdout: anytype, data: []const u8) !void {
     offset += @sizeOf(ifinfomsg);
     try dumpRtAttrLink(stdout, @alignCast(data[offset..]));
 }
-
-//      RTM_NEWLINK
-//       RTM_DELLINK
-//       RTM_GETLINK
-//              Create, remove, or get information about a specific network
-//              interface.  These messages contain an ifinfomsg structure
-//              followed by a series of rtattr structures.
-//
-//
-//              ifi_flags contains the device flags, see netdevice(7);
-//              ifi_index is the unique interface index (since Linux 3.7,
-//              it is possible to feed a nonzero value with the RTM_NEWLINK
-//              message, thus creating a link with the given ifindex);
-//              ifi_change is reserved for future use and should be always
-//              set to 0xFFFFFFFF.
-//                                  Routing attributes
-//              rta_type            Value type         Description
-//              ────────────────────────────────────────────────────────────
-//              IFLA_UNSPEC         -                  unspecified
-//              IFLA_ADDRESS        hardware address   interface L2 address
-//              IFLA_BROADCAST      hardware address   L2 broadcast address
-//              IFLA_IFNAME         asciiz string      Device name
-//              IFLA_MTU            unsigned int       MTU of the device
-//              IFLA_LINK           int                Link type
-//              IFLA_QDISC          asciiz string      Queueing discipline
-//              IFLA_STATS          see below          Interface Statistics
-//              IFLA_PERM_ADDRESS   hardware address   hardware address
-//                                                     provided by device
-//                                                     (since Linux 5.5)
-//
-//              The value type for IFLA_STATS is struct rtnl_link_stats
-//              (struct net_device_stats in Linux 2.4 and earlier).
-
-const RTMGRP_LINK = 1;
-const RTMGRP_NOTIFY = 2;
-const RTMGRP_NEIGH = 4;
-const RTMGRP_TC = 8;
-const RTMGRP_IPV4_IFADDR = 0x10;
-const RTMGRP_IPV4_MROUTE = 0x20;
-const RTMGRP_IPV4_ROUTE = 0x40;
-const RTMGRP_IPV4_RULE = 0x80;
-const RTMGRP_IPV6_IFADDR = 0x100;
-const RTMGRP_IPV6_MROUTE = 0x200;
-const RTMGRP_IPV6_ROUTE = 0x400;
-const RTMGRP_IPV6_IFINFO = 0x800;
-const RTMGRP_DECnet_IFADDR = 0x1000;
-const RTMGRP_DECnet_ROUTE = 0x4000;
-const RTMGRP_IPV6_PREFIX = 0x20000;
-
-const rtnetlink_groups = enum { RTNLGRP_NONE, RTNLGRP_LINK, RTNLGRP_NOTIFY, RTNLGRP_NEIGH, RTNLGRP_TC, RTNLGRP_IPV4_IFADDR, RTNLGRP_IPV4_MROUTE, RTNLGRP_IPV4_ROUTE, RTNLGRP_IPV4_RULE, RTNLGRP_IPV6_IFADDR, RTNLGRP_IPV6_MROUTE, RTNLGRP_IPV6_ROUTE, RTNLGRP_IPV6_IFINFO, RTNLGRP_DECnet_IFADDR, RTNLGRP_NOP2, RTNLGRP_DECnet_ROUTE, RTNLGRP_DECnet_RULE, RTNLGRP_NOP4, RTNLGRP_IPV6_PREFIX, RTNLGRP_IPV6_RULE, RTNLGRP_ND_USEROPT, RTNLGRP_PHONET_IFADDR, RTNLGRP_PHONET_ROUTE, RTNLGRP_DCB, RTNLGRP_IPV4_NETCONF, RTNLGRP_IPV6_NETCONF, RTNLGRP_MDB, RTNLGRP_MPLS_ROUTE, RTNLGRP_NSID, RTNLGRP_MPLS_NETCONF, RTNLGRP_IPV4_MROUTE_R, RTNLGRP_IPV6_MROUTE_R, RTNLGRP_NEXTHOP, RTNLGRP_BRVLAN, RTNLGRP_MCTP_IFADDR, RTNLGRP_TUNNEL, RTNLGRP_STATS, RTNLGRP_IPV4_MCADDR, RTNLGRP_IPV6_MCADDR, RTNLGRP_IPV6_ACADDR, __RTNLGRP_MAX };
 
 const socket = std.posix.socket;
 const write = std.posix.write;
