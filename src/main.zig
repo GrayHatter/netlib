@@ -41,16 +41,11 @@ pub const IfLink = struct {
 
     pub fn init(nlmsg: []align(4) const u8) !IfLink {
         var offset: usize = 0;
-        //try stdout.print("NEWLINK\n", .{});
         offset += @sizeOf(nlmsghdr);
         const infomsg: *const ifinfomsg = @ptrCast(@alignCast(nlmsg[offset..]));
-        //try stdout.print("link {}\n", .{link});
         offset += @sizeOf(ifinfomsg);
-        //try dumpRtAttrLink(stdout, @alignCast(data[offset..]));
 
-        var link: IfLink = .{
-            .index = @intCast(infomsg.index),
-        };
+        var link: IfLink = .{ .index = @intCast(infomsg.index) };
         try link.scanAttr(@alignCast(nlmsg[offset..]));
 
         return link;
@@ -64,8 +59,11 @@ pub const IfLink = struct {
                 .QDISC => link.qdisc = attr.data[0 .. attr.data.len - 1 :0],
                 .IFNAME => link.name = attr.data[0 .. attr.data.len - 1 :0],
                 .AF_SPEC => {
-                    //try stdout.print("attr {}\n", .{attr.type.type});
-                    //try stdout.print("attr.len {}\n", .{attr.len});
+                    if (debug) {
+                        std.debug.print("attr {}\n", .{attr.type.type});
+                        std.debug.print("attr.len {}\n", .{attr.len});
+                        std.debug.print("attr.data {any}\n", .{attr.data});
+                    }
                 },
                 .STATS => {},
                 .STATS64 => {
@@ -87,9 +85,7 @@ pub const IfLink = struct {
                     const ifmap: *align(4) const link_ifmap = @alignCast(@ptrCast(attr.data.ptr));
                     if (debug) std.debug.print("ifmap {} \n", .{ifmap.*});
                 },
-                .WIRELESS => {
-                    std.debug.print("WIRELESS attr.data {any} \n", .{attr.data});
-                },
+                .WIRELESS => std.debug.print("WIRELESS attr.data {any} \n", .{attr.data}),
                 .CARRIER => link.carrier = attr.data[0] == 1,
                 .MTU => link.mtu = @bitCast(attr.data[0..4].*),
                 .MIN_MTU => link.mtu_min = @bitCast(attr.data[0..4].*),
@@ -229,11 +225,8 @@ pub fn route() !void {
                     const link: IfLink = try .init(@alignCast(rbuffer[start..][0..aligned]));
                     try stdout.print("{}\n", .{link});
                 },
-                .RTM_NEWADDR => try dumpAddr(stdout, rbuffer[start..][0..aligned]),
                 .DONE => nl_more = false,
-                else => |t| {
-                    try stdout.print("unimplemented tag {}\n", .{t});
-                },
+                else => |t| try stdout.print("unimplemented tag {}\n", .{t}),
             }
 
             size -|= aligned;
@@ -264,12 +257,9 @@ pub fn route() !void {
             const aligned: usize = lhdr.len + 3 & ~@as(usize, 3);
 
             switch (lhdr.type) {
-                //.RTM_NEWLINK => try dumpLink(stdout, rbuffer[start..][0..aligned]),
                 .RTM_NEWADDR => try dumpAddr(stdout, rbuffer[start..][0..aligned]),
                 .DONE => nl_more = false,
-                else => |t| {
-                    try stdout.print("unimplemented tag {}\n", .{t});
-                },
+                else => |t| try stdout.print("unimplemented tag {}\n", .{t}),
             }
 
             size -|= aligned;
