@@ -9,10 +9,153 @@ fn usage(arg0: []const u8) noreturn {
     std.posix.exit(1);
 }
 
+var debug: bool = false;
+
 pub const netlink = @import("netlink.zig");
 pub const socket = @import("socket.zig").socket;
 
 pub const nlmsghdr = netlink.MsgHdr(netlink.MsgType);
+
+pub const IfLink = struct {
+    index: u32,
+    name: [:0]const u8 = "ERROR: NO IFNAME",
+    altname: ?[:0]const u8 = null,
+    grp_id: u32 = 0,
+
+    mac: ?[6]u8 = null,
+    mac_brd: ?[6]u8 = null,
+
+    stats: ?stats64 = null,
+
+    qdisc: ?[:0]const u8 = null,
+    txqueue: u32 = 0,
+
+    carrier: bool = false,
+
+    mtu: u32 = 0,
+    mtu_min: u32 = 0,
+    mtu_max: u32 = 0,
+
+    addresses: struct {
+        buffer: [20]u8 = @splat(0),
+    } = .{},
+
+    pub const stats64 = std.os.linux.rtnl_link_stats64;
+
+    pub fn init(nlmsg: []align(4) const u8) !IfLink {
+        var offset: usize = 0;
+        //try stdout.print("NEWLINK\n", .{});
+        offset += @sizeOf(nlmsghdr);
+        const infomsg: *const ifinfomsg = @ptrCast(@alignCast(nlmsg[offset..]));
+        //try stdout.print("link {}\n", .{link});
+        offset += @sizeOf(ifinfomsg);
+        //try dumpRtAttrLink(stdout, @alignCast(data[offset..]));
+
+        var link: IfLink = .{
+            .index = @intCast(infomsg.index),
+        };
+        try link.scanAttr(@alignCast(nlmsg[offset..]));
+
+        return link;
+    }
+
+    fn scanAttr(link: *IfLink, nlmsg: []align(4) const u8) !void {
+        var offset: usize = 0;
+        while (offset < nlmsg.len) {
+            const attr: Attr(.rtlink) = try .init(@alignCast(nlmsg[offset..]));
+            switch (attr.type.type) {
+                .QDISC => link.qdisc = attr.data[0 .. attr.data.len - 1 :0],
+                .IFNAME => link.name = attr.data[0 .. attr.data.len - 1 :0],
+                .AF_SPEC => {
+                    //try stdout.print("attr {}\n", .{attr.type.type});
+                    //try stdout.print("attr.len {}\n", .{attr.len});
+                },
+                .STATS => {},
+                .STATS64 => {
+                    var stats: stats64 = undefined;
+                    const sbytes = std.mem.asBytes(&stats);
+                    if (attr.len < sbytes.len) return error.MalformedAttr;
+                    link.stats = @as(*align(4) const stats64, @ptrCast(attr.data[0..sbytes.len])).*;
+                },
+                .ADDRESS => switch (attr.data.len) {
+                    6 => link.mac = attr.data[0..6].*,
+                    else => return error.InvalidAddress,
+                },
+                .BROADCAST => switch (attr.data.len) {
+                    6 => link.mac_brd = attr.data[0..6].*,
+                    else => return error.InvalidAddress,
+                },
+                .MAP => {
+                    const link_ifmap = std.os.linux.rtnl_link_ifmap;
+                    const ifmap: *align(4) const link_ifmap = @alignCast(@ptrCast(attr.data.ptr));
+                    if (debug) std.debug.print("ifmap {} \n", .{ifmap.*});
+                },
+                .WIRELESS => {
+                    std.debug.print("WIRELESS attr.data {any} \n", .{attr.data});
+                },
+                .CARRIER => link.carrier = attr.data[0] == 1,
+                .MTU => link.mtu = @bitCast(attr.data[0..4].*),
+                .MIN_MTU => link.mtu_min = @bitCast(attr.data[0..4].*),
+                .MAX_MTU => link.mtu_max = @bitCast(attr.data[0..4].*),
+                .TXQLEN => link.txqueue = @bitCast(attr.data[0..4].*),
+                .GROUP => link.grp_id = @bitCast(attr.data[0..4].*),
+                // Probably nested
+                .PROP_LIST => {
+                    const pattr: Attr(.rtlink) = try .init(@alignCast(attr.data));
+                    switch (pattr.type.type) {
+                        .ALT_IFNAME => link.altname = pattr.data[0 .. pattr.data.len - 1 :0],
+                        else => std.debug.print("{}\n", .{pattr}),
+                    }
+                },
+
+                else => {
+                    const int: u16 = @intFromEnum(attr.type.type);
+                    if (debug) {
+                        std.debug.print(
+                            "attr {} (nested {}) (nbo {}) {} {b} [len: {}]\n",
+                            .{
+                                attr.type.type,
+                                attr.type.nested,
+                                attr.type.byte_order,
+                                int,
+                                int,
+                                attr.len - 4,
+                            },
+                        );
+                        std.debug.print("    data {any} \n", .{attr.data});
+                    }
+                },
+            }
+            offset += attr.len_aligned;
+        }
+    }
+
+    pub fn format(l: IfLink, comptime _: []const u8, _: std.fmt.FormatOptions, out: anytype) anyerror!void {
+        var mac_buf: [17]u8 = undefined;
+        var brd_buf: [17]u8 = undefined;
+        try out.print(
+            \\{}: {s}: <{s}> mtu[{}] qdisc[{s}] state[--] mode[--] group[{}] qlen[{}]
+            \\    link/[something] {s} {s}{s}{s}
+        ,
+            .{
+                l.index,                                     l.name,   if (l.carrier) "UP" else "DOWN", l.mtu,
+                l.qdisc orelse "ukn",                        l.grp_id, l.txqueue,
+                if (l.mac) |m| std.fmt.bufPrint(
+                    &mac_buf,
+                    "{x}:{x}:{x}:{x}:{x}:{x}",
+                    .{ m[0], m[1], m[2], m[3], m[4], m[5] },
+                ) catch unreachable else "mac not found",
+                if (l.mac_brd) |b| std.fmt.bufPrint(
+                    &brd_buf,
+                    "{x}:{x}:{x}:{x}:{x}:{x}",
+                    .{ b[0], b[1], b[2], b[3], b[4], b[5] },
+                ) catch unreachable else "mac not found",
+                if (l.altname) |_| "\n    altname " else "",
+                l.altname orelse "",
+            },
+        );
+    }
+};
 
 pub fn Attr(T: enum { rtlink, rtaddr, genl }) type {
     return struct {
@@ -114,7 +257,6 @@ pub fn nl80211SendMsg() !void {
 
     while (nl_more) {
         var size = try s.read(&rbuffer);
-        try stdout.print("\n\n\n", .{});
         try stdout.print("{} {any} \n", .{ size, rbuffer[0..size] });
         var start: usize = 0;
         while (size > 0) {
@@ -222,17 +364,16 @@ pub fn route() !void {
                 @panic("");
             }
 
-            try stdout.print("\n\n\n", .{});
             const lhdr: *nlmsghdr = @ptrCast(@alignCast(rbuffer[start..]));
             const aligned: usize = lhdr.len + 3 & ~@as(usize, 3);
 
             switch (lhdr.type) {
-                .RTM_NEWLINK => try dumpLink(stdout, rbuffer[start..][0..aligned]),
-                .RTM_NEWADDR => try dumpAddr(stdout, rbuffer[start..][0..aligned]),
-                .DONE => {
-                    nl_more = false;
-                    try stdout.print("LIST DONE\n", .{});
+                .RTM_NEWLINK => {
+                    const link: IfLink = try .init(@alignCast(rbuffer[start..][0..aligned]));
+                    try stdout.print("{}\n", .{link});
                 },
+                .RTM_NEWADDR => try dumpAddr(stdout, rbuffer[start..][0..aligned]),
+                .DONE => nl_more = false,
                 else => |t| {
                     try stdout.print("unimplemented tag {}\n", .{t});
                 },
@@ -266,12 +407,9 @@ pub fn route() !void {
             const aligned: usize = lhdr.len + 3 & ~@as(usize, 3);
 
             switch (lhdr.type) {
-                .RTM_NEWLINK => try dumpLink(stdout, rbuffer[start..][0..aligned]),
+                //.RTM_NEWLINK => try dumpLink(stdout, rbuffer[start..][0..aligned]),
                 .RTM_NEWADDR => try dumpAddr(stdout, rbuffer[start..][0..aligned]),
-                .DONE => {
-                    nl_more = false;
-                    try stdout.print("LIST DONE\n", .{});
-                },
+                .DONE => nl_more = false,
                 else => |t| {
                     try stdout.print("unimplemented tag {}\n", .{t});
                 },
@@ -592,89 +730,6 @@ fn dumpRtAttrAddr(stdout: anytype, data: []const u8) !void {
     }
 }
 
-fn dumpRtAttrLink(stdout: anytype, data: []align(4) const u8) !void {
-    var offset: usize = 0;
-    while (offset < data.len) {
-        const attr: Attr(.rtlink) = try .init(@alignCast(data[offset..]));
-        switch (attr.type.type) {
-            .QDISC => {
-                const name: [:0]const u8 = attr.data[0 .. attr.data.len - 1 :0];
-                try stdout.print(
-                    "QDISC ({}) '{s}' {any} \n",
-                    .{ name.len, name, name },
-                );
-            },
-            .IFNAME => {
-                const name: [:0]const u8 = attr.data[0 .. attr.data.len - 1 :0];
-                try stdout.print(
-                    "name ({}) '{s}' {any} \n",
-                    .{ name.len, name, name },
-                );
-            },
-            .AF_SPEC => {
-                try stdout.print("attr {}\n", .{attr.type.type});
-                try stdout.print("attr.len {}\n", .{attr.len});
-            },
-            .STATS => {},
-            .STATS64 => {
-                const stats64 = std.os.linux.rtnl_link_stats64;
-                var stats: stats64 = undefined;
-                const sbytes = std.mem.asBytes(&stats);
-                std.debug.print("{} vs {}\n", .{ sbytes.len, attr.data.len });
-                if (data.len < sbytes.len) return error.MalformedAttr;
-                @memcpy(sbytes, attr.data[0..sbytes.len]);
-                try stdout.print("stats {} \n", .{stats});
-            },
-            .BROADCAST, .ADDRESS => {
-                const int: u16 = @intFromEnum(attr.type.type);
-                try stdout.print("attr {}    {}    {b}\n", .{ attr.type.type, int, int });
-                switch (attr.data.len) {
-                    6 => {
-                        try stdout.print("    {x}:{x}:{x}:{x}:{x}:{x}\n", .{
-                            attr.data[0], attr.data[1], attr.data[2],
-                            attr.data[3], attr.data[4], attr.data[5],
-                        });
-                    },
-                    else => {
-                        try stdout.print("    len {} \n", .{attr.data.len});
-                    },
-                }
-            },
-            .MAP => {
-                const link_ifmap = std.os.linux.rtnl_link_ifmap;
-                const ifmap: *align(4) const link_ifmap = @alignCast(@ptrCast(attr.data.ptr));
-                try stdout.print("ifmap {} \n", .{ifmap.*});
-            },
-            .WIRELESS => {
-                const int: u16 = @intFromEnum(attr.type.type);
-                try stdout.print("attr {}\n    {}    {b}\n", .{ attr.type.type, int, int });
-                try stdout.print("attr.len {}\n", .{attr.len});
-                try stdout.print(
-                    "state offset {} len {} total {} remain {} \n",
-                    .{ offset, attr.len, attr.data.len, attr.data.len },
-                );
-                try stdout.print("attr.data {any} \n", .{attr.data});
-            },
-            else => {
-                const int: u16 = @intFromEnum(attr.type.type);
-                try stdout.print(
-                    "attr {} (nested {}) (nbo {}) {} {b} [len: {}]\n",
-                    .{
-                        attr.type.type,
-                        attr.type.nested,
-                        attr.type.byte_order,
-                        int,
-                        int,
-                        attr.len - 4,
-                    },
-                );
-                try stdout.print("    data {any} \n", .{attr.data});
-            },
-        }
-        offset += attr.len_aligned;
-    }
-}
-
 fn dumpAddr(stdout: anytype, data: []const u8) !void {
     try stdout.print("NEWADDR\n", .{});
     //try stdout.print("blob {any}\n", .{data});
@@ -684,16 +739,6 @@ fn dumpAddr(stdout: anytype, data: []const u8) !void {
     offset += @sizeOf(ifaddrmsg);
     //try stdout.print("blob {any}\n", .{data[offset..]});
     try dumpRtAttrAddr(stdout, data[offset..]);
-}
-
-fn dumpLink(stdout: anytype, data: []const u8) !void {
-    var offset: usize = 0;
-    try stdout.print("NEWLINK\n", .{});
-    offset += @sizeOf(nlmsghdr);
-    const link: *const ifinfomsg = @ptrCast(@alignCast(data[offset..]));
-    try stdout.print("link {}\n", .{link});
-    offset += @sizeOf(ifinfomsg);
-    try dumpRtAttrLink(stdout, @alignCast(data[offset..]));
 }
 
 //const socket = std.posix.socket;
