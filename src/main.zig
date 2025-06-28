@@ -10,6 +10,7 @@ fn usage(arg0: []const u8) noreturn {
 }
 
 pub const netlink = @import("netlink.zig");
+pub const socket = @import("socket.zig").socket;
 
 pub const nlmsghdr = netlink.MsgHdr(netlink.MsgType);
 
@@ -73,7 +74,7 @@ pub const nlmsgerr = extern struct {
 pub fn nl80211SendMsg() !void {
     const stdout = std.io.getStdOut().writer();
 
-    const s = try socket(AF.NETLINK, SOCK.RAW, std.os.linux.NETLINK.GENERIC);
+    const s = try socket(.netlink_generic);
 
     const full_size = (@sizeOf(nlmsghdr) + @sizeOf(netlink.generic.MsgHdr) + @sizeOf(Attr(.genl).Header) + 8 + 3) & ~@as(usize, 3);
 
@@ -103,7 +104,7 @@ pub fn nl80211SendMsg() !void {
     try w.writeAll("nl80211");
     try w.writeByte(0);
 
-    _ = try write(s, w_list.items);
+    _ = try s.write(w_list.items);
 
     try stdout.print("{any}\n", .{w_list.items});
 
@@ -112,7 +113,7 @@ pub fn nl80211SendMsg() !void {
     var nl_more: bool = true;
 
     while (nl_more) {
-        var size = try read(s, &rbuffer);
+        var size = try s.read(&rbuffer);
         try stdout.print("\n\n\n", .{});
         try stdout.print("{} {any} \n", .{ size, rbuffer[0..size] });
         var start: usize = 0;
@@ -173,7 +174,7 @@ pub fn dumpNl80211(stdout: anytype, data: []align(4) const u8) !void {
 pub fn route() !void {
     const stdout = std.io.getStdOut().writer();
 
-    const s = try socket(AF.NETLINK, SOCK.RAW, std.os.linux.NETLINK.ROUTE);
+    const s = try socket(.netlink_route);
 
     const full_size = @sizeOf(nlmsghdr) + @sizeOf(netlink.route.GenMsg);
 
@@ -194,7 +195,7 @@ pub fn route() !void {
     };
     try w.writeStruct(rtgen);
 
-    _ = try write(s, w_list.items);
+    _ = try s.write(w_list.items);
 
     // Netlink expects that the user buffer will be at least 8kB or a page size
     // of the CPU architecture, whichever is bigger. Particular Netlink families
@@ -213,7 +214,7 @@ pub fn route() !void {
     // to detect when this happens (via the ENOBUFS error returned by
     // recvmsg()) and resynchronize.
     while (nl_more) {
-        var size = try read(s, &rbuffer);
+        var size = try s.read(&rbuffer);
         var start: usize = 0;
         while (size > 0) {
             if (size < @sizeOf(nlmsghdr)) {
@@ -248,11 +249,11 @@ pub fn route() !void {
     try w.writeStruct(hdr);
     try w.writeStruct(rtgen);
 
-    _ = try write(s, w_list.items);
+    _ = try s.write(w_list.items);
     nl_more = true;
 
     while (nl_more) {
-        var size = try read(s, &rbuffer);
+        var size = try s.read(&rbuffer);
         var start: usize = 0;
         while (size > 0) {
             if (size < @sizeOf(nlmsghdr)) {
@@ -695,7 +696,7 @@ fn dumpLink(stdout: anytype, data: []const u8) !void {
     try dumpRtAttrLink(stdout, @alignCast(data[offset..]));
 }
 
-const socket = std.posix.socket;
+//const socket = std.posix.socket;
 const write = std.posix.write;
 const read = std.posix.read;
 const connect = std.posix.connect;
