@@ -11,9 +11,6 @@ fn usage(arg0: []const u8) noreturn {
 
 var debug: bool = false;
 
-pub const netlink = @import("netlink.zig");
-pub const socket = @import("socket.zig").socket;
-
 pub const nlmsghdr = netlink.MsgHdr(netlink.MsgType);
 
 pub const IfLink = struct {
@@ -157,42 +154,6 @@ pub const IfLink = struct {
     }
 };
 
-pub fn Attr(T: enum { rtlink, rtaddr, genl }) type {
-    return struct {
-        len: u16,
-        type: AttrType,
-        data: []align(4) const u8,
-        /// The payload size reflects struct + data, but the whole message must
-        /// be 4 aligned. len_aligned is provided for convenience.
-        len_aligned: u16,
-
-        pub const Header = packed struct {
-            len: u16,
-            type: AttrType,
-        };
-
-        pub const AttrType = switch (T) {
-            .rtaddr => IFA,
-            .rtlink => IFLA,
-            .genl => netlink.generic.Ctrl.Attr,
-        };
-
-        pub const Self = @This();
-
-        pub fn init(data: []align(4) const u8) !Self {
-            const len: *const u16 = @ptrCast(data[0..2]);
-            if (len.* > data.len or len.* < 4) return error.MalformedAttr;
-            const type_: *const AttrType = @ptrCast(data[2..4]);
-            return .{
-                .len = len.*,
-                .type = type_.*,
-                .data = data[4..][0 .. len.* - 4],
-                .len_aligned = len.* + 3 & ~@as(u16, 3),
-            };
-        }
-    };
-}
-
 pub fn main() !void {
     var args = std.process.args();
     const arg0 = args.next() orelse usage("wat?!");
@@ -201,116 +162,12 @@ pub fn main() !void {
         if (startsWith(u8, arg, "--")) {
             usage(arg0);
         } else if (eql(u8, arg, "nl80211")) {
-            return try nl80211SendMsg();
+            return try nl80211.sendMsg();
         } else {
             return try route();
         }
     }
     return usage(arg0);
-}
-
-pub const nlmsgerr = extern struct {
-    err: i32,
-    msg: nlmsghdr,
-};
-
-pub fn nl80211SendMsg() !void {
-    const stdout = std.io.getStdOut().writer();
-
-    const s = try socket(.netlink_generic);
-
-    const full_size = (@sizeOf(nlmsghdr) + @sizeOf(netlink.generic.MsgHdr) + @sizeOf(Attr(.genl).Header) + 8 + 3) & ~@as(usize, 3);
-
-    var w_buffer: [full_size]u8 align(4) = undefined;
-    var w_list: std.ArrayListUnmanaged(u8) = .initBuffer(&w_buffer);
-    var w = w_list.fixedWriter();
-
-    const req_hdr: netlink.MsgHdr(netlink.generic.GENL) = .{
-        .len = full_size,
-        .type = .ID_CTRL,
-        .flags = std.os.linux.NLM_F_REQUEST | std.os.linux.NLM_F_ACK,
-        .seq = 1,
-        .pid = 0,
-    };
-    try w.writeStruct(req_hdr);
-
-    const r_genmsg: netlink.generic.MsgHdr = .{
-        .cmd = .GETFAMILY,
-    };
-    try w.writeStruct(r_genmsg);
-
-    const attr: Attr(.genl).Header = .{
-        .len = 12,
-        .type = .FAMILY_NAME,
-    };
-    try w.writeStruct(attr);
-    try w.writeAll("nl80211");
-    try w.writeByte(0);
-
-    _ = try s.write(w_list.items);
-
-    try stdout.print("{any}\n", .{w_list.items});
-
-    var rbuffer: [0x8000]u8 align(4) = undefined;
-
-    var nl_more: bool = true;
-
-    while (nl_more) {
-        var size = try s.read(&rbuffer);
-        try stdout.print("{} {any} \n", .{ size, rbuffer[0..size] });
-        var start: usize = 0;
-        while (size > 0) {
-            if (size < @sizeOf(nlmsghdr)) {
-                try stdout.print("response too small {}\n", .{size});
-                @panic("");
-            }
-
-            try stdout.print("\n\n\n", .{});
-            const hdr: *nlmsghdr = @ptrCast(@alignCast(rbuffer[start..]));
-            const aligned: usize = hdr.len + 3 & ~@as(usize, 3);
-
-            switch (hdr.type) {
-                .ERROR => {
-                    try stdout.print("error {} \n", .{hdr});
-                    try stdout.print("flags {} {b} {x}\n", .{ hdr.flags, hdr.flags, hdr.flags });
-                    if (hdr.len > @sizeOf(nlmsghdr)) {
-                        const emsg: *align(4) nlmsgerr = @alignCast(@ptrCast(rbuffer[start + @sizeOf(nlmsghdr) ..]));
-                        try stdout.print("error msg {} \n", .{emsg});
-                    }
-                    nl_more = false;
-                },
-
-                .DONE => {
-                    nl_more = false;
-                },
-                else => try dumpNl80211(stdout, @alignCast(rbuffer[start + @sizeOf(nlmsghdr) .. aligned])),
-            }
-
-            size -|= aligned;
-            start += aligned;
-        }
-    }
-    try stdout.print("done\n", .{});
-}
-
-pub fn dumpNl80211(stdout: anytype, data: []align(4) const u8) !void {
-    var offset: usize = 0;
-    //const rtattr = std.os.linux.rtattr;
-    const genlmsg: *align(4) const netlink.generic.MsgHdr = @ptrCast(@alignCast(data[offset..]));
-    try stdout.print("genl {any}\n", .{genlmsg});
-    offset += @sizeOf(netlink.generic.MsgHdr);
-
-    while (offset < data.len) {
-        const attr: Attr(.genl) = try .init(@alignCast(data[offset..]));
-        switch (attr.type) {
-            else => {
-                try stdout.print("\n\n\n\nattr {}\n    {}    {b}\n", .{ attr.type, @intFromEnum(attr.type), @intFromEnum(attr.type) });
-                try stdout.print("attr.len {}\n", .{attr.len});
-                try stdout.print("attr.data {any} \n\n\n", .{attr.data});
-            },
-        }
-        offset += attr.len_aligned;
-    }
 }
 
 pub fn route() !void {
@@ -423,29 +280,6 @@ pub fn route() !void {
     try stdout.print("done\n", .{});
 }
 
-pub const IFA = packed struct(u16) {
-    type: Type,
-    byte_order: bool,
-    nested: bool,
-
-    const Type = enum(u14) {
-        UNSPEC,
-        ADDRESS,
-        LOCAL,
-        LABEL,
-        BROADCAST,
-        ANYCAST,
-        CACHEINFO,
-        MULTICAST,
-        FLAGS,
-        RT_PRIORITY,
-        TARGET_NETNSID,
-        PROTO,
-
-        _,
-    };
-};
-
 const Family = enum(u8) {
     IPv4 = 2,
     IPv6 = 10,
@@ -546,111 +380,6 @@ pub const ifa_proto = enum(u8) {
     KERNEL_LL,
 };
 
-pub const IFLA = packed struct(u16) {
-    type: Type,
-    byte_order: bool,
-    nested: bool,
-
-    pub const Type = enum(u14) {
-        UNSPEC,
-        ADDRESS,
-        BROADCAST,
-        IFNAME,
-        MTU,
-        LINK,
-        QDISC,
-        STATS,
-        COST,
-        PRIORITY,
-        MASTER,
-
-        /// Wireless Extension event
-        WIRELESS,
-
-        /// Protocol specific information for a link
-        PROTINFO,
-
-        TXQLEN,
-        MAP,
-        WEIGHT,
-        OPERSTATE,
-        LINKMODE,
-        LINKINFO,
-        NET_NS_PID,
-        IFALIAS,
-
-        /// Number of VFs if device is SR-IOV PF
-        NUM_VF,
-
-        VFINFO_LIST,
-        STATS64,
-        VF_PORTS,
-        PORT_SELF,
-        AF_SPEC,
-
-        /// Group the device belongs to
-        GROUP,
-
-        NET_NS_FD,
-
-        /// Extended info mask, VFs, etc
-        EXT_MASK,
-
-        /// Promiscuity count: > 0 means acts PROMISC
-        PROMISCUITY,
-
-        NUM_TX_QUEUES,
-        NUM_RX_QUEUES,
-        CARRIER,
-        PHYS_PORT_ID,
-        CARRIER_CHANGES,
-        PHYS_SWITCH_ID,
-        LINK_NETNSID,
-        PHYS_PORT_NAME,
-        PROTO_DOWN,
-        GSO_MAX_SEGS,
-        GSO_MAX_SIZE,
-        PAD,
-        XDP,
-        EVENT,
-
-        NEW_NETNSID,
-        IF_NETNSID,
-
-        CARRIER_UP_COUNT,
-        CARRIER_DOWN_COUNT,
-        NEW_IFINDEX,
-        MIN_MTU,
-        MAX_MTU,
-
-        PROP_LIST,
-        ALT_IFNAME, // Alternative ifname
-        PERM_ADDRESS,
-        PROTO_DOWN_REASON,
-
-        // device (sysfs) name as parent, used instead
-        // of IFLA_LINK where there's no parent netdev
-        PARENT_DEV_NAME,
-        PARENT_DEV_BUS_NAME,
-        GRO_MAX_SIZE,
-        TSO_MAX_SIZE,
-        TSO_MAX_SEGS,
-        ALLMULTI, // Allmulti count: > 0 means acts ALLMULTI
-
-        DEVLINK_PORT,
-
-        GSO_IPV4_MAX_SIZE,
-        GRO_IPV4_MAX_SIZE,
-        DPLL_PIN,
-        MAX_PACING_OFFLOAD_HORIZON,
-        NETNS_IMMUTABLE,
-        __MAX,
-        _,
-    };
-
-    pub const TARGET_NETNSID: IFLA = .IF_NETNSID;
-};
-
 fn dumpRtAttrAddr(stdout: anytype, data: []const u8) !void {
     var offset: usize = 0;
     //const rtattr = std.os.linux.rtattr;
@@ -740,6 +469,11 @@ fn dumpAddr(stdout: anytype, data: []const u8) !void {
     //try stdout.print("blob {any}\n", .{data[offset..]});
     try dumpRtAttrAddr(stdout, data[offset..]);
 }
+
+pub const netlink = @import("netlink.zig");
+pub const nl80211 = @import("nl80211.zig");
+pub const socket = @import("socket.zig").socket;
+const Attr = netlink.Attr;
 
 //const socket = std.posix.socket;
 const write = std.posix.write;

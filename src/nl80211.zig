@@ -165,3 +165,115 @@ pub const CMD = enum(u16) {
     pub const ACTION_TX_STATUS: CMD = .FRAME_TX_STATUS;
     pub const REGISTER_ACTION: CMD = .REGISTER_FRAME;
 };
+
+pub fn sendMsg() !void {
+    const stdout = std.io.getStdOut().writer();
+
+    const s = try socket(.netlink_generic);
+
+    const full_size = (@sizeOf(nlmsghdr) + @sizeOf(netlink.generic.MsgHdr) + @sizeOf(Attr(.genl).Header) + 8 + 3) & ~@as(usize, 3);
+
+    var w_buffer: [full_size]u8 align(4) = undefined;
+    var w_list: std.ArrayListUnmanaged(u8) = .initBuffer(&w_buffer);
+    var w = w_list.fixedWriter();
+
+    const req_hdr: netlink.MsgHdr(netlink.generic.GENL) = .{
+        .len = full_size,
+        .type = .ID_CTRL,
+        .flags = std.os.linux.NLM_F_REQUEST | std.os.linux.NLM_F_ACK,
+        .seq = 1,
+        .pid = 0,
+    };
+    try w.writeStruct(req_hdr);
+
+    const r_genmsg: netlink.generic.MsgHdr = .{
+        .cmd = .GETFAMILY,
+    };
+    try w.writeStruct(r_genmsg);
+
+    const attr: Attr(.genl).Header = .{
+        .len = 12,
+        .type = .FAMILY_NAME,
+    };
+    try w.writeStruct(attr);
+    try w.writeAll("nl80211");
+    try w.writeByte(0);
+
+    _ = try s.write(w_list.items);
+
+    try stdout.print("{any}\n", .{w_list.items});
+
+    var rbuffer: [0x8000]u8 align(4) = undefined;
+
+    var nl_more: bool = true;
+
+    while (nl_more) {
+        var size = try s.read(&rbuffer);
+        try stdout.print("{} {any} \n", .{ size, rbuffer[0..size] });
+        var start: usize = 0;
+        while (size > 0) {
+            if (size < @sizeOf(nlmsghdr)) {
+                try stdout.print("response too small {}\n", .{size});
+                @panic("");
+            }
+
+            try stdout.print("\n\n\n", .{});
+            const hdr: *nlmsghdr = @ptrCast(@alignCast(rbuffer[start..]));
+            const aligned: usize = hdr.len + 3 & ~@as(usize, 3);
+
+            switch (hdr.type) {
+                .ERROR => {
+                    try stdout.print("error {} \n", .{hdr});
+                    try stdout.print("flags {} {b} {x}\n", .{ hdr.flags, hdr.flags, hdr.flags });
+                    if (hdr.len > @sizeOf(nlmsghdr)) {
+                        const emsg: *align(4) nlmsgerr = @alignCast(@ptrCast(rbuffer[start + @sizeOf(nlmsghdr) ..]));
+                        try stdout.print("error msg {} \n", .{emsg});
+                    }
+                    nl_more = false;
+                },
+
+                .DONE => {
+                    nl_more = false;
+                },
+                else => try dumpNl80211(stdout, @alignCast(rbuffer[start + @sizeOf(nlmsghdr) .. aligned])),
+            }
+
+            size -|= aligned;
+            start += aligned;
+        }
+    }
+    try stdout.print("done\n", .{});
+}
+
+pub fn dumpNl80211(stdout: anytype, data: []align(4) const u8) !void {
+    var offset: usize = 0;
+    //const rtattr = std.os.linux.rtattr;
+    const genlmsg: *align(4) const netlink.generic.MsgHdr = @ptrCast(@alignCast(data[offset..]));
+    try stdout.print("genl {any}\n", .{genlmsg});
+    offset += @sizeOf(netlink.generic.MsgHdr);
+
+    while (offset < data.len) {
+        const attr: Attr(.genl) = try .init(@alignCast(data[offset..]));
+        switch (attr.type) {
+            else => {
+                try stdout.print("\n\n\n\nattr {}\n    {}    {b}\n", .{ attr.type, @intFromEnum(attr.type), @intFromEnum(attr.type) });
+                try stdout.print("attr.len {}\n", .{attr.len});
+                try stdout.print("attr.data {any} \n\n\n", .{attr.data});
+            },
+        }
+        offset += attr.len_aligned;
+    }
+}
+
+pub const nlmsgerr = extern struct {
+    err: i32,
+    msg: nlmsghdr,
+};
+
+const nlmsghdr = netlink.MsgHdr(netlink.MsgType);
+const netlink = @import("netlink.zig");
+const socket = @import("socket.zig").socket;
+
+const Attr = netlink.Attr;
+
+const std = @import("std");
