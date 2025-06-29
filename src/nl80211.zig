@@ -261,76 +261,8 @@ fn msgFamily(stdout: anytype, fid: u16) !void {
     const s = try socket(.netlink_generic);
 
     {
-        const full_size = (@sizeOf(nlmsghdr) +
-            @sizeOf(netlink.generic.MsgHdr(netlink.generic.Ctrl.Cmd)) +
-            3) &
-            ~@as(usize, 3);
+        try stdout.print("\n\n\ndump prot features \n\n\n", .{});
 
-        var w_buffer: [full_size]u8 align(4) = undefined;
-        var w_list: std.ArrayListUnmanaged(u8) = .initBuffer(&w_buffer);
-        var w = w_list.fixedWriter();
-
-        const req_hdr: netlink.MsgHdr(u16, netlink.HeaderFlags.Ack) = .{
-            .len = full_size,
-            .type = fid,
-            .flags = .{
-                .REQUEST = true,
-                .ACK = true,
-            },
-
-            .seq = 13,
-            .pid = 0,
-        };
-        try w.writeStruct(req_hdr);
-        try stdout.print("req_hdr {any}\n\n\n", .{req_hdr});
-
-        try w.writeStruct(netlink.generic.MsgHdr(Cmd){
-            .cmd = .GET_PROTOCOL_FEATURES,
-        });
-
-        _ = try s.write(w_list.items);
-
-        try stdout.print("request {any}\n", .{w_list.items});
-
-        var rbuffer: [0x8000]u8 align(4) = undefined;
-
-        var nl_more: bool = true;
-
-        while (nl_more) {
-            var size = try s.read(&rbuffer);
-            var start: usize = 0;
-            while (size > 0) {
-                if (size < @sizeOf(nlmsghdr)) {
-                    try stdout.print("response too small {}\n", .{size});
-                    @panic("");
-                }
-                try stdout.print("\n\n\n", .{});
-                try stdout.print("data\n{any}\n\n\n", .{rbuffer[0..size]});
-                const hdr: *nlmsghdr = @ptrCast(@alignCast(rbuffer[start..]));
-                const aligned: usize = hdr.len + 3 & ~@as(usize, 3);
-
-                switch (hdr.type) {
-                    .ERROR => {
-                        try stdout.print("error {} \n", .{hdr});
-                        if (hdr.len > @sizeOf(nlmsghdr)) {
-                            const emsg: *align(4) nlmsgerr = @alignCast(@ptrCast(rbuffer[start + @sizeOf(nlmsghdr) ..]));
-                            try stdout.print("error msg {} \n", .{emsg});
-                        }
-                        nl_more = false;
-                    },
-
-                    .DONE => nl_more = false,
-                    else => {
-                        try stdout.print("hdr {any}\n", .{hdr});
-                        try stdout.print("hdr {any}\n", .{hdr});
-                    },
-                }
-                size -|= aligned;
-                start += aligned;
-            }
-        }
-    }
-    {
         const NlMsgHdr = netlink.MsgHdr(u16, netlink.HeaderFlags.Get);
         const CtrlMsgHdr = netlink.generic.MsgHdr(Cmd);
 
@@ -343,21 +275,14 @@ fn msgFamily(stdout: anytype, fid: u16) !void {
         const req_hdr: NlMsgHdr = .{
             .len = full_size,
             .type = fid,
-            .flags = .{
-                .REQUEST = true,
-                .ACK = true,
-                .ROOT = true,
-                .MATCH = true,
-            },
-            .seq = 17,
+            .flags = .{ .REQUEST = true, .ACK = true },
+            .seq = 13,
             .pid = 0,
         };
         try w.writeStruct(req_hdr);
         try stdout.print("req_hdr {any}\n\n\n", .{req_hdr});
 
-        try w.writeStruct(CtrlMsgHdr{
-            .cmd = .GET_WIPHY,
-        });
+        try w.writeStruct(CtrlMsgHdr{ .cmd = .GET_PROTOCOL_FEATURES });
 
         _ = try s.write(w_list.items);
 
@@ -393,7 +318,86 @@ fn msgFamily(stdout: anytype, fid: u16) !void {
                     .DONE => nl_more = false,
                     else => {
                         try stdout.print("hdr {any}\n", .{hdr});
-                        try stdout.print("hdr {any}\n", .{hdr});
+                    },
+                }
+                size -|= aligned;
+                start += aligned;
+            }
+        }
+    }
+    {
+        try stdout.print("\n\n\ndump wiphy \n\n\n", .{});
+
+        const NlMsgHdr = netlink.MsgHdr(netlink.MsgType, netlink.HeaderFlags.Get);
+        const CtrlMsgHdr = netlink.generic.MsgHdr(Cmd);
+
+        const full_size = (@sizeOf(NlMsgHdr) + @sizeOf(CtrlMsgHdr) + 3) & ~@as(usize, 3);
+
+        var w_buffer: [full_size]u8 align(4) = undefined;
+        var w_list: std.ArrayListUnmanaged(u8) = .initBuffer(&w_buffer);
+        var w = w_list.fixedWriter();
+
+        const req_hdr: NlMsgHdr = .{
+            .len = full_size,
+            .type = @enumFromInt(fid),
+            .flags = .{ .REQUEST = true, .ACK = true, .ROOT = true, .MATCH = true },
+            .seq = 17,
+            .pid = 0,
+        };
+        try w.writeStruct(req_hdr);
+        //try stdout.print("req_hdr {any}\n\n\n", .{req_hdr});
+        try w.writeStruct(CtrlMsgHdr{ .cmd = .GET_WIPHY });
+        //try stdout.print("request {any}\n", .{w_list.items});
+        _ = try s.write(w_list.items);
+
+        var rbuffer: [0x8000]u8 align(4) = undefined;
+
+        var nl_more: bool = true;
+
+        while (nl_more) {
+            var size = try s.read(&rbuffer);
+            var start: usize = 0;
+            while (size > 0) {
+                if (size < @sizeOf(nlmsghdr)) {
+                    try stdout.print("response too small {}\n", .{size});
+                    @panic("");
+                }
+                try stdout.print("\n\n\n", .{});
+                //try stdout.print("data\n{any}\n\n\n", .{rbuffer[0..size]});
+                const hdr: *NlMsgHdr = @ptrCast(@alignCast(rbuffer[start..]));
+                try stdout.print("hdr {any}\n", .{hdr});
+
+                const aligned: usize = hdr.len + 3 & ~@as(usize, 3);
+
+                const cmsghdr: *CtrlMsgHdr = @ptrCast(@alignCast(rbuffer[start + @sizeOf(NlMsgHdr) ..]));
+                try stdout.print("cmsghdr {any}\n\n", .{cmsghdr.*});
+
+                switch (hdr.type) {
+                    .ERROR => {
+                        try stdout.print("error {} \n", .{hdr});
+                        if (hdr.len > @sizeOf(nlmsghdr)) {
+                            const emsg: *align(4) nlmsgerr = @alignCast(@ptrCast(rbuffer[start + @sizeOf(NlMsgHdr) + @sizeOf(CtrlMsgHdr) ..]));
+                            try stdout.print("error msg {} \n", .{emsg});
+                        }
+                        nl_more = false;
+                    },
+
+                    .DONE => nl_more = false,
+                    else => {
+                        var a_offset: usize = start + @sizeOf(NlMsgHdr) + @sizeOf(CtrlMsgHdr);
+                        while (a_offset < hdr.len + start) {
+                            const attr: Attr(Attrs) = try .init(@alignCast(rbuffer[a_offset..]));
+                            switch (attr.type) {
+                                .WIPHY_NAME => try stdout.print("    name: {s}\n", .{attr.data[0 .. attr.data.len - 1 :0]}),
+                                else => {
+                                    try stdout.print(
+                                        "    attr.type {} [{}] {any}\n",
+                                        .{ attr.type, attr.len, if (attr.len <= 40) attr.data else "" },
+                                    );
+                                },
+                            }
+                            a_offset += attr.len_aligned;
+                        }
                     },
                 }
 

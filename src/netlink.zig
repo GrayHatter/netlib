@@ -29,6 +29,15 @@ pub const HeaderFlags = struct {
         MATCH: bool = false, // 0x200 /* return all matching */
         ATOMIC: bool = false, // 0x400 /* atomic GET  */
         ___padding: u5 = 0,
+
+        pub fn format(g: Get, comptime _: []const u8, _: std.fmt.FormatOptions, out: anytype) anyerror!void {
+            try out.writeAll("(");
+            inline for (@typeInfo(Get).@"struct".fields) |f| {
+                if (f.type != bool) continue;
+                if (@field(g, f.name)) try out.writeAll(f.name ++ ",");
+            }
+            try out.writeAll(")");
+        }
     };
 
     pub const New = packed struct(u16) {
