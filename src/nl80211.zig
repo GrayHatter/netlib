@@ -309,11 +309,22 @@ fn msgFamily(stdout: anytype, fid: u16) !void {
                 const hdr: *nlmsghdr = @ptrCast(@alignCast(rbuffer[start..]));
                 const aligned: usize = hdr.len + 3 & ~@as(usize, 3);
 
-                try stdout.print("hdr {any}\n", .{hdr});
-                //try stdout.print("flags {} {b} \n", .{ hdr.flags, @as(u16, @bitCast(hdr.flags)) });
+                switch (hdr.type) {
+                    .ERROR => {
+                        try stdout.print("error {} \n", .{hdr});
+                        if (hdr.len > @sizeOf(nlmsghdr)) {
+                            const emsg: *align(4) nlmsgerr = @alignCast(@ptrCast(rbuffer[start + @sizeOf(nlmsghdr) ..]));
+                            try stdout.print("error msg {} \n", .{emsg});
+                        }
+                        nl_more = false;
+                    },
 
-                nl_more = false;
-
+                    .DONE => nl_more = false,
+                    else => {
+                        try stdout.print("hdr {any}\n", .{hdr});
+                        try stdout.print("hdr {any}\n", .{hdr});
+                    },
+                }
                 size -|= aligned;
                 start += aligned;
             }
@@ -369,10 +380,22 @@ fn msgFamily(stdout: anytype, fid: u16) !void {
                 const hdr: *nlmsghdr = @ptrCast(@alignCast(rbuffer[start..]));
                 const aligned: usize = hdr.len + 3 & ~@as(usize, 3);
 
-                try stdout.print("hdr {any}\n", .{hdr});
-                //try stdout.print("flags {} {b} \n", .{ hdr.flags, @as(u16, @bitCast(hdr.flags)) });
+                switch (hdr.type) {
+                    .ERROR => {
+                        try stdout.print("error {} \n", .{hdr});
+                        if (hdr.len > @sizeOf(nlmsghdr)) {
+                            const emsg: *align(4) nlmsgerr = @alignCast(@ptrCast(rbuffer[start + @sizeOf(nlmsghdr) ..]));
+                            try stdout.print("error msg {} \n", .{emsg});
+                        }
+                        nl_more = false;
+                    },
 
-                nl_more = false;
+                    .DONE => nl_more = false,
+                    else => {
+                        try stdout.print("hdr {any}\n", .{hdr});
+                        try stdout.print("hdr {any}\n", .{hdr});
+                    },
+                }
 
                 size -|= aligned;
                 start += aligned;
