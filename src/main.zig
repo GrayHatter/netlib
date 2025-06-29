@@ -439,7 +439,7 @@ fn dumpRtAttrAddr(stdout: anytype, data: []const u8, iflink: *IfLink) !void {
                             attr.data[2],
                             attr.data[3],
                         });
-                        addr = .{ .inet = @as(*const u32, @ptrCast(attr.data)).* };
+                        if (t == .ADDRESS) addr = .{ .inet = @as(*const u32, @ptrCast(attr.data)).* };
                     },
                     16 => {
                         if (debug) try stdout.print("{}:{}:{}:{}:{}:{}:{}:{}\n", .{
