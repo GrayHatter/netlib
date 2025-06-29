@@ -74,7 +74,7 @@ pub const HeaderFlags = struct {
     };
 };
 
-pub fn Attr(T: enum { rtlink, rtaddr, genl }) type {
+pub fn Attr(T: enum { rtlink, rtaddr, genl, genl_attrops, nl80211cmd, u16 }) type {
     return struct {
         len: u16,
         type: AttrType,
@@ -92,6 +92,9 @@ pub fn Attr(T: enum { rtlink, rtaddr, genl }) type {
             .rtaddr => IFA,
             .rtlink => IFLA,
             .genl => generic.Ctrl.Attr,
+            .genl_attrops => generic.Ctrl.AttrOps,
+            .nl80211cmd => nl80211.Cmd,
+            .u16 => u16,
         };
 
         pub const Self = @This();
@@ -266,7 +269,14 @@ pub const generic = struct {
             POLICY,
             OP_POLICY,
             OP,
-            __CTRL_ATTR_MAX,
+            __MAX,
+        };
+
+        pub const AttrOps = enum(u16) {
+            UNSPEC,
+            ID,
+            FLAGS,
+            __MAX,
         };
 
         pub const Cmd = enum(u8) {
@@ -290,6 +300,14 @@ pub const generic = struct {
         ID_VFS_DQUOT,
         ID_PMCRAID,
         START_ALLOC,
+    };
+    pub const CAP = packed struct(u32) {
+        ADMIN_PERM: bool,
+        DO: bool,
+        DUMP: bool,
+        HAS_POLICY: bool,
+        UNS_ADMIN_PERM: bool,
+        __padding: u27,
     };
 };
 

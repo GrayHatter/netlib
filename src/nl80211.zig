@@ -1,4 +1,4 @@
-pub const CMD = enum(u16) {
+pub const Cmd = enum(u16) {
     UNSPEC,
     GET_WIPHY,
     SET_WIPHY,
@@ -159,11 +159,11 @@ pub const CMD = enum(u16) {
     EPCS_CFG,
     __AFTER_LAST,
 
-    pub const NEW_BEACON: CMD = .START_AP;
-    pub const DEL_BEACON: CMD = .STOP_AP;
-    pub const ACTION: CMD = .FRAME;
-    pub const ACTION_TX_STATUS: CMD = .FRAME_TX_STATUS;
-    pub const REGISTER_ACTION: CMD = .REGISTER_FRAME;
+    pub const NEW_BEACON: Cmd = .START_AP;
+    pub const DEL_BEACON: Cmd = .STOP_AP;
+    pub const ACTION: Cmd = .FRAME;
+    pub const ACTION_TX_STATUS: Cmd = .FRAME_TX_STATUS;
+    pub const REGISTER_ACTION: Cmd = .REGISTER_FRAME;
 };
 
 pub fn sendMsg() !void {
@@ -258,19 +258,37 @@ pub fn dumpNl80211(stdout: anytype, data: []align(4) const u8) !void {
     while (offset < data.len) {
         const attr: Attr(.genl) = try .init(@alignCast(data[offset..]));
         switch (attr.type) {
-            .FAMILY_NAME => {},
+            .FAMILY_NAME => try stdout.print("name: {s}\n", .{attr.data[0 .. attr.data.len - 1 :0]}),
             .FAMILY_ID => family_id = @as(*const u16, @ptrCast(attr.data)).*,
-            .VERSION => {},
-            .HDRSIZE => {},
-            .MAXATTR => {},
-            .MCAST_GROUPS => {},
+            .VERSION => try stdout.print("version: {}\n", .{@as(*const u32, @ptrCast(attr.data)).*}),
+            .HDRSIZE => try stdout.print("hdrsize: {}\n", .{@as(*const u32, @ptrCast(attr.data)).*}),
+            .MAXATTR => try stdout.print("maxattr: {}\n", .{@as(*const u32, @ptrCast(attr.data)).*}),
+            .MCAST_GROUPS => try stdout.print("mcastgrp: {any}\n", .{attr.data}),
             .OPS => {
                 try stdout.print(
                     "attr {}\n    {}    {b}\n",
                     .{ attr.type, @intFromEnum(attr.type), @intFromEnum(attr.type) },
                 );
-                try stdout.print("attr.len {}\n", .{attr.len});
-                try stdout.print("attr.data {any} \n\n\n", .{attr.data});
+                var noffset: usize = 0;
+                while (noffset < attr.data.len) {
+                    const nattr: Attr(.nl80211cmd) = try .init(@alignCast(attr.data[noffset..]));
+                    noffset += nattr.len;
+                    try stdout.print("    nattr.type {}   \n", .{nattr.type});
+                    //try stdout.print("    nattr.data {any} \n", .{nattr.data});
+
+                    // I couldn't find documentation, so I'm just expermenting
+                    // with the way iproute2/genl works
+                    const nattr_0: Attr(.genl_attrops) = try .init(nattr.data[0..8]);
+                    const op_id: *const u32 = @ptrCast(nattr_0.data);
+                    try stdout.print("        op id 0x{x} ", .{op_id.*});
+                    const nattr_1: Attr(.genl_attrops) = try .init(nattr.data[8..16]);
+                    const cap: *const netlink.generic.CAP = @ptrCast(nattr_1.data);
+                    if (cap.ADMIN_PERM) try stdout.print(" admin required,", .{});
+                    if (cap.DO) try stdout.print(" can do,", .{});
+                    if (cap.HAS_POLICY) try stdout.print(" has policy,", .{});
+                    if (cap.__padding != 0) try stdout.print(" padding non-zero {}", .{cap.__padding});
+                    try stdout.print("\n", .{});
+                }
             },
             else => {
                 try stdout.print("\n\n\n\nattr {}\n    {}    {b} ", .{ attr.type, @intFromEnum(attr.type), @intFromEnum(attr.type) });
