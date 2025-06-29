@@ -240,7 +240,7 @@ pub fn sendMsg() !void {
                 },
 
                 .DONE => nl_more = false,
-                else => try dumpNl80211(stdout, @alignCast(rbuffer[start + @sizeOf(nlmsghdr) .. aligned])),
+                else => try dump(stdout, @alignCast(rbuffer[start + @sizeOf(nlmsghdr) .. aligned])),
             }
 
             size -|= aligned;
@@ -250,7 +250,7 @@ pub fn sendMsg() !void {
     try stdout.print("done\n", .{});
 }
 
-pub fn dumpNl80211(stdout: anytype, data: []align(4) const u8) !void {
+pub fn dump(stdout: anytype, data: []align(4) const u8) !void {
     var offset: usize = 0;
     //const rtattr = std.os.linux.rtattr;
     const genlmsg: *align(4) const netlink.generic.MsgHdr = @ptrCast(@alignCast(data[offset..]));
