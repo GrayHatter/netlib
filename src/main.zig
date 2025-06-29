@@ -54,7 +54,7 @@ pub const IfLink = struct {
     fn scanAttr(link: *IfLink, nlmsg: []align(4) const u8) !void {
         var offset: usize = 0;
         while (offset < nlmsg.len) {
-            const attr: Attr(.rtlink) = try .init(@alignCast(nlmsg[offset..]));
+            const attr: Attr(netlink.IFLA) = try .init(@alignCast(nlmsg[offset..]));
             switch (attr.type.type) {
                 .QDISC => link.qdisc = attr.data[0 .. attr.data.len - 1 :0],
                 .IFNAME => link.name = attr.data[0 .. attr.data.len - 1 :0],
@@ -94,7 +94,7 @@ pub const IfLink = struct {
                 .GROUP => link.grp_id = @bitCast(attr.data[0..4].*),
                 // Probably nested
                 .PROP_LIST => {
-                    const pattr: Attr(.rtlink) = try .init(@alignCast(attr.data));
+                    const pattr: Attr(netlink.IFLA) = try .init(@alignCast(attr.data));
                     switch (pattr.type.type) {
                         .ALT_IFNAME => link.altname = pattr.data[0 .. pattr.data.len - 1 :0],
                         else => std.debug.print("{}\n", .{pattr}),
@@ -379,7 +379,7 @@ fn dumpRtAttrAddr(stdout: anytype, data: []const u8) !void {
     var offset: usize = 0;
     //const rtattr = std.os.linux.rtattr;
     while (offset < data.len) {
-        const attr: Attr(.rtaddr) = try .init(@alignCast(data[offset..]));
+        const attr: Attr(netlink.IFA) = try .init(@alignCast(data[offset..]));
         switch (attr.type.type) {
             .LABEL => {
                 const name: [:0]const u8 = attr.data[0 .. attr.data.len - 1 :0];

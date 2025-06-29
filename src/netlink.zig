@@ -74,7 +74,7 @@ pub const HeaderFlags = struct {
     };
 };
 
-pub fn Attr(T: enum { rtlink, rtaddr, genl, genl_attrops, nl80211cmd, u16 }) type {
+pub fn Attr(T: type) type {
     return struct {
         len: u16,
         type: AttrType,
@@ -83,19 +83,13 @@ pub fn Attr(T: enum { rtlink, rtaddr, genl, genl_attrops, nl80211cmd, u16 }) typ
         /// be 4 aligned. len_aligned is provided for convenience.
         len_aligned: u16,
 
+        // Common Header is provided for convenience
         pub const Header = packed struct {
             len: u16,
             type: AttrType,
         };
 
-        pub const AttrType = switch (T) {
-            .rtaddr => IFA,
-            .rtlink => IFLA,
-            .genl => generic.Ctrl.Attr,
-            .genl_attrops => generic.Ctrl.AttrOps,
-            .nl80211cmd => nl80211.Cmd,
-            .u16 => u16,
-        };
+        pub const AttrType = T;
 
         pub const Self = @This();
 

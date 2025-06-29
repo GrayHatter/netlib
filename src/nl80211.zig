@@ -171,7 +171,11 @@ pub fn sendMsg() !void {
 
     const s = try socket(.netlink_generic);
 
-    const full_size = (@sizeOf(nlmsghdr) + @sizeOf(netlink.generic.MsgHdr) + @sizeOf(Attr(.genl).Header) + 8 + 3) & ~@as(usize, 3);
+    const full_size = (@sizeOf(nlmsghdr) +
+        @sizeOf(netlink.generic.MsgHdr) +
+        @sizeOf(Attr(netlink.generic.Ctrl.Attr).Header) +
+        8 + 3) &
+        ~@as(usize, 3);
 
     var w_buffer: [full_size]u8 align(4) = undefined;
     var w_list: std.ArrayListUnmanaged(u8) = .initBuffer(&w_buffer);
@@ -195,7 +199,7 @@ pub fn sendMsg() !void {
     };
     try w.writeStruct(r_genmsg);
 
-    const attr: Attr(.genl).Header = .{
+    const attr: Attr(netlink.generic.Ctrl.Attr).Header = .{
         .len = 12,
         .type = .FAMILY_NAME,
     };
@@ -256,7 +260,7 @@ pub fn dumpNl80211(stdout: anytype, data: []align(4) const u8) !void {
     var family_id: ?u16 = null;
 
     while (offset < data.len) {
-        const attr: Attr(.genl) = try .init(@alignCast(data[offset..]));
+        const attr: Attr(netlink.generic.Ctrl.Attr) = try .init(@alignCast(data[offset..]));
         switch (attr.type) {
             .FAMILY_NAME => try stdout.print("name: {s}\n", .{attr.data[0 .. attr.data.len - 1 :0]}),
             .FAMILY_ID => family_id = @as(*const u16, @ptrCast(attr.data)).*,
@@ -271,17 +275,17 @@ pub fn dumpNl80211(stdout: anytype, data: []align(4) const u8) !void {
                 );
                 var noffset: usize = 0;
                 while (noffset < attr.data.len) {
-                    const nattr: Attr(.nl80211cmd) = try .init(@alignCast(attr.data[noffset..]));
+                    const nattr: Attr(Cmd) = try .init(@alignCast(attr.data[noffset..]));
                     noffset += nattr.len;
                     try stdout.print("    nattr.type {}   \n", .{nattr.type});
                     //try stdout.print("    nattr.data {any} \n", .{nattr.data});
 
                     // I couldn't find documentation, so I'm just expermenting
                     // with the way iproute2/genl works
-                    const nattr_0: Attr(.genl_attrops) = try .init(nattr.data[0..8]);
+                    const nattr_0: Attr(netlink.generic.Ctrl.AttrOps) = try .init(nattr.data[0..8]);
                     const op_id: *const u32 = @ptrCast(nattr_0.data);
                     try stdout.print("        op id 0x{x} ", .{op_id.*});
-                    const nattr_1: Attr(.genl_attrops) = try .init(nattr.data[8..16]);
+                    const nattr_1: Attr(netlink.generic.Ctrl.AttrOps) = try .init(nattr.data[8..16]);
                     const cap: *const netlink.generic.CAP = @ptrCast(nattr_1.data);
                     if (cap.ADMIN_PERM) try stdout.print(" admin required,", .{});
                     if (cap.DO) try stdout.print(" can do,", .{});
