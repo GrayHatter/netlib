@@ -275,17 +275,17 @@ pub fn dump(stdout: anytype, data: []align(4) const u8) !void {
                 );
                 var noffset: usize = 0;
                 while (noffset < attr.data.len) {
-                    const nattr: Attr(Cmd) = try .init(@alignCast(attr.data[noffset..]));
+                    const nattr: Attr(u16) = try .init(@alignCast(attr.data[noffset..]));
                     noffset += nattr.len;
-                    try stdout.print("    nattr.type {}   \n", .{nattr.type});
-                    //try stdout.print("    nattr.data {any} \n", .{nattr.data});
+
+                    const nattr_0: Attr(netlink.generic.Ctrl.AttrOps) = try .init(nattr.data[0..8]);
+                    const nattr_1: Attr(netlink.generic.Ctrl.AttrOps) = try .init(nattr.data[8..16]);
 
                     // I couldn't find documentation, so I'm just expermenting
                     // with the way iproute2/genl works
-                    const nattr_0: Attr(netlink.generic.Ctrl.AttrOps) = try .init(nattr.data[0..8]);
-                    const op_id: *const u32 = @ptrCast(nattr_0.data);
-                    try stdout.print("        op id 0x{x} ", .{op_id.*});
-                    const nattr_1: Attr(netlink.generic.Ctrl.AttrOps) = try .init(nattr.data[8..16]);
+                    const op_id: *const u32 = @ptrCast(nattr_0.data[0..4]);
+                    try stdout.print("    {}\n", .{@as(Cmd, @enumFromInt(op_id.*))});
+                    try stdout.print("        op id {} (0x{x}) ", .{ op_id.*, op_id.* });
                     const cap: *const netlink.generic.CAP = @ptrCast(nattr_1.data);
                     if (cap.ADMIN_PERM) try stdout.print(" admin required,", .{});
                     if (cap.DO) try stdout.print(" can do,", .{});
