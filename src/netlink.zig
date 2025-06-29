@@ -244,11 +244,14 @@ pub const route = struct {
 };
 
 pub const generic = struct {
-    pub const MsgHdr = extern struct {
-        cmd: Ctrl.Cmd,
-        version: u8 = 2,
-        reserved: u16 = 0,
-    };
+    pub fn MsgHdr(T: type) type {
+        comptime std.debug.assert(@sizeOf(T) == 1);
+        return extern struct {
+            cmd: T,
+            version: u8 = 1,
+            reserved: u16 = 0,
+        };
+    }
 
     pub const Ctrl = struct {
         pub const Attr = enum(u16) {
