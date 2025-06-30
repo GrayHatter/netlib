@@ -6,10 +6,10 @@ pub fn MsgHdr(T: type, Flags: type) type {
         len: u32,
         type: T,
         flags: Flags,
-        /// Sequence number
-        seq: u32,
-        /// Sending process port ID
-        pid: u32,
+        /// Sequence number (set and used by userspace to ident request source)
+        seq: u32 = 0,
+        /// Destination process port ID
+        pid: u32 = 0,
     };
 }
 
@@ -38,6 +38,9 @@ pub const HeaderFlags = struct {
             }
             try out.writeAll(")");
         }
+
+        pub const DUMP: Get = .{ .REQUEST = true, .ACK = true, .ROOT = true, .MATCH = true };
+        pub const ReqAck: Get = .{ .REQUEST = true, .ACK = true };
     };
 
     pub const New = packed struct(u16) {

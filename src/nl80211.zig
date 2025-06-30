@@ -171,38 +171,24 @@ pub fn sendMsg() !void {
 
     const s = try socket(.netlink_generic);
 
-    const full_size = (@sizeOf(nlmsghdr) +
-        @sizeOf(netlink.generic.MsgHdr(netlink.generic.Ctrl.Cmd)) +
-        @sizeOf(Attr(netlink.generic.Ctrl.Attr).Header) +
-        8 + 3) &
-        ~@as(usize, 3);
+    const NlMsgHdr = netlink.MsgHdr(netlink.MsgType, netlink.HeaderFlags.Get);
+    const GenlMsgHdr = netlink.MsgHdr(netlink.generic.GENL, netlink.HeaderFlags.Ack);
+    const CtrlMsgHdr = netlink.generic.MsgHdr(netlink.generic.Ctrl.Cmd);
+    const AttrCtrlHdr = Attr(netlink.generic.Ctrl.Attr).Header;
+
+    const full_size = (@sizeOf(NlMsgHdr) + @sizeOf(CtrlMsgHdr) + @sizeOf(AttrCtrlHdr) + 8 + 3) & ~@as(usize, 3);
 
     var w_buffer: [full_size]u8 align(4) = undefined;
     var w_list: std.ArrayListUnmanaged(u8) = .initBuffer(&w_buffer);
     var w = w_list.fixedWriter();
 
-    const req_hdr: netlink.MsgHdr(netlink.generic.GENL, netlink.HeaderFlags.Ack) = .{
-        .len = full_size,
-        .type = .ID_CTRL,
-        .flags = .{
-            .REQUEST = true,
-            .ACK = true,
-        },
-
-        .seq = 1,
-        .pid = 0,
-    };
+    const req_hdr: GenlMsgHdr = .{ .len = full_size, .type = .ID_CTRL, .flags = .ReqAck, .seq = 1 };
     try w.writeStruct(req_hdr);
 
-    const r_genmsg: netlink.generic.MsgHdr(netlink.generic.Ctrl.Cmd) = .{
-        .cmd = .GETFAMILY,
-    };
+    const r_genmsg: CtrlMsgHdr = .{ .cmd = .GETFAMILY };
     try w.writeStruct(r_genmsg);
 
-    const attr: Attr(netlink.generic.Ctrl.Attr).Header = .{
-        .len = 12,
-        .type = .FAMILY_NAME,
-    };
+    const attr: AttrCtrlHdr = .{ .len = 12, .type = .FAMILY_NAME };
     try w.writeStruct(attr);
     try w.writeAll("nl80211");
     try w.writeByte(0);
@@ -221,28 +207,28 @@ pub fn sendMsg() !void {
         var size = try s.read(&rbuffer);
         var start: usize = 0;
         while (size > 0) {
-            if (size < @sizeOf(nlmsghdr)) {
+            if (size < @sizeOf(NlMsgHdr)) {
                 try stdout.print("response too small {}\n", .{size});
                 @panic("");
             }
 
             try stdout.print("\n\n\n", .{});
-            const hdr: *nlmsghdr = @ptrCast(@alignCast(rbuffer[start..]));
+            const hdr: *NlMsgHdr = @ptrCast(@alignCast(rbuffer[start..]));
             const aligned: usize = hdr.len + 3 & ~@as(usize, 3);
 
             try stdout.print("flags {} {b} \n", .{ hdr.flags, @as(u16, @bitCast(hdr.flags)) });
             switch (hdr.type) {
                 .ERROR => {
                     try stdout.print("error {} \n", .{hdr});
-                    if (hdr.len > @sizeOf(nlmsghdr)) {
-                        const emsg: *align(4) nlmsgerr = @alignCast(@ptrCast(rbuffer[start + @sizeOf(nlmsghdr) ..]));
+                    if (hdr.len > @sizeOf(NlMsgHdr)) {
+                        const emsg: *align(4) nlmsgerr = @alignCast(@ptrCast(rbuffer[start + @sizeOf(NlMsgHdr) ..]));
                         try stdout.print("error msg {} \n", .{emsg});
                     }
                     nl_more = false;
                 },
 
                 .DONE => nl_more = false,
-                else => fid = try dump(stdout, @alignCast(rbuffer[start + @sizeOf(nlmsghdr) .. aligned])),
+                else => fid = try dump(stdout, @alignCast(rbuffer[start + @sizeOf(NlMsgHdr) .. aligned])),
             }
 
             size -|= aligned;
@@ -263,22 +249,17 @@ fn msgFamily(stdout: anytype, fid: u16) !void {
     {
         try stdout.print("\n\n\ndump prot features \n\n\n", .{});
 
-        const NlMsgHdr = netlink.MsgHdr(u16, netlink.HeaderFlags.Get);
+        const NlMsgHdr = netlink.MsgHdr(netlink.MsgType, netlink.HeaderFlags.Get);
+        const GenlMsgHdr = netlink.MsgHdr(u16, netlink.HeaderFlags.Get);
         const CtrlMsgHdr = netlink.generic.MsgHdr(Cmd);
 
-        const full_size = (@sizeOf(NlMsgHdr) + @sizeOf(CtrlMsgHdr) + 3) & ~@as(usize, 3);
+        const full_size = (@sizeOf(GenlMsgHdr) + @sizeOf(CtrlMsgHdr) + 3) & ~@as(usize, 3);
 
         var w_buffer: [full_size]u8 align(4) = undefined;
         var w_list: std.ArrayListUnmanaged(u8) = .initBuffer(&w_buffer);
         var w = w_list.fixedWriter();
 
-        const req_hdr: NlMsgHdr = .{
-            .len = full_size,
-            .type = fid,
-            .flags = .{ .REQUEST = true, .ACK = true },
-            .seq = 13,
-            .pid = 0,
-        };
+        const req_hdr: GenlMsgHdr = .{ .len = full_size, .type = fid, .flags = .ReqAck, .seq = 13 };
         try w.writeStruct(req_hdr);
         try stdout.print("req_hdr {any}\n\n\n", .{req_hdr});
 
@@ -296,20 +277,20 @@ fn msgFamily(stdout: anytype, fid: u16) !void {
             var size = try s.read(&rbuffer);
             var start: usize = 0;
             while (size > 0) {
-                if (size < @sizeOf(nlmsghdr)) {
+                if (size < @sizeOf(NlMsgHdr)) {
                     try stdout.print("response too small {}\n", .{size});
                     @panic("");
                 }
                 try stdout.print("\n\n\n", .{});
                 try stdout.print("data\n{any}\n\n\n", .{rbuffer[0..size]});
-                const hdr: *nlmsghdr = @ptrCast(@alignCast(rbuffer[start..]));
+                const hdr: *NlMsgHdr = @ptrCast(@alignCast(rbuffer[start..]));
                 const aligned: usize = hdr.len + 3 & ~@as(usize, 3);
 
                 switch (hdr.type) {
                     .ERROR => {
                         try stdout.print("error {} \n", .{hdr});
-                        if (hdr.len > @sizeOf(nlmsghdr)) {
-                            const emsg: *align(4) nlmsgerr = @alignCast(@ptrCast(rbuffer[start + @sizeOf(nlmsghdr) ..]));
+                        if (hdr.len > @sizeOf(NlMsgHdr)) {
+                            const emsg: *align(4) nlmsgerr = @alignCast(@ptrCast(rbuffer[start + @sizeOf(NlMsgHdr) ..]));
                             try stdout.print("error msg {} \n", .{emsg});
                         }
                         nl_more = false;
@@ -340,9 +321,8 @@ fn msgFamily(stdout: anytype, fid: u16) !void {
         const req_hdr: NlMsgHdr = .{
             .len = full_size,
             .type = @enumFromInt(fid),
-            .flags = .{ .REQUEST = true, .ACK = true, .ROOT = true, .MATCH = true },
+            .flags = .DUMP,
             .seq = 17,
-            .pid = 0,
         };
         try w.writeStruct(req_hdr);
         //try stdout.print("req_hdr {any}\n\n\n", .{req_hdr});
@@ -358,7 +338,7 @@ fn msgFamily(stdout: anytype, fid: u16) !void {
             var size = try s.read(&rbuffer);
             var start: usize = 0;
             while (size > 0) {
-                if (size < @sizeOf(nlmsghdr)) {
+                if (size < @sizeOf(NlMsgHdr)) {
                     try stdout.print("response too small {}\n", .{size});
                     @panic("");
                 }
@@ -375,7 +355,7 @@ fn msgFamily(stdout: anytype, fid: u16) !void {
                 switch (hdr.type) {
                     .ERROR => {
                         try stdout.print("error {} \n", .{hdr});
-                        if (hdr.len > @sizeOf(nlmsghdr)) {
+                        if (hdr.len > @sizeOf(NlMsgHdr)) {
                             const emsg: *align(4) nlmsgerr = @alignCast(@ptrCast(rbuffer[start + @sizeOf(NlMsgHdr) + @sizeOf(CtrlMsgHdr) ..]));
                             try stdout.print("error msg {} \n", .{emsg});
                         }
@@ -467,11 +447,12 @@ pub fn dump(stdout: anytype, data: []align(4) const u8) !u16 {
 pub const nlmsgerr = extern struct {
     err: i32,
     msg: nlmsghdr,
+
+    const nlmsghdr = netlink.MsgHdr(netlink.MsgType, netlink.HeaderFlags.Get);
 };
 
 const Attrs = @import("nl80211/attr.zig").Attrs;
 
-const nlmsghdr = netlink.MsgHdr(netlink.MsgType, netlink.HeaderFlags.Get);
 const netlink = @import("netlink.zig");
 const socket = @import("socket.zig").socket;
 
