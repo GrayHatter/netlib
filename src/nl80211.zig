@@ -2,6 +2,7 @@ pub fn sendMsg() !void {
     const stdout = std.io.getStdOut().writer();
 
     const s = try socket(.netlink_generic);
+    defer s.close();
 
     const NlMsgHdr = netlink.MsgHdr(netlink.MsgType, netlink.HeaderFlags.Get);
     const CtrlMsgHdr = netlink.generic.MsgHdr(netlink.generic.Ctrl.Cmd);
@@ -59,6 +60,7 @@ pub fn sendMsg() !void {
 
 fn msgFamily(stdout: anytype, fid: u16) !void {
     const s = try socket(.netlink_generic);
+    defer s.close();
 
     {
         try stdout.print("\n\n\ndump prot features \n\n\n", .{});
@@ -106,7 +108,14 @@ fn msgFamily(stdout: anytype, fid: u16) !void {
             }
         }
     }
+    try dumpWiphy(stdout, fid);
+}
+
+fn dumpWiphy(stdout: anytype, fid: u16) !void {
     {
+        const s = try socket(.netlink_generic);
+        defer s.close();
+
         try stdout.print("\n\n\ndump wiphy \n\n\n", .{});
 
         const NlMsgHdr = netlink.MsgHdr(netlink.MsgType, netlink.HeaderFlags.Get);
