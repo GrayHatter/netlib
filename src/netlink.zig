@@ -83,6 +83,8 @@ pub const HeaderFlags = struct {
         CAPPED: bool = false, // 0x100 /* request was capped */
         ACK_TLVS: bool = false, // 0x200 /* extended ACK TVLs were included */
         ___padding: u6 = 0,
+
+        pub const ReqAck: Ack = .{ .REQUEST = true, .ACK = true };
     };
 };
 
