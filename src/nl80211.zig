@@ -114,19 +114,20 @@ fn dumpWiphy(stdout: anytype, fid: u16) !void {
         std.debug.assert(wiphy.extra == 0);
         try stdout.print("\n\n\nhdr {any}\n", .{wiphy.header});
         try stdout.print("\n\n\nbase {any}\n", .{wiphy.base});
-        var offset: usize = 0;
-        var blob = wiphy.payload(offset);
         switch (wiphy.header.type) {
             .DONE => nl_more = false,
             .ERROR => {
                 try stdout.print("error {} \n", .{wiphy.header});
                 if (wiphy.header.len > @sizeOf(NlMsgHdr)) {
+                    const blob = wiphy.payload(0);
                     const emsg: *align(4) const nlmsgerr = @ptrCast(blob);
                     try stdout.print("error msg {} \n", .{emsg});
                 }
                 nl_more = false;
             },
             else => {
+                var offset: usize = 0;
+                var blob = wiphy.payload(offset);
                 while (blob.len > 0) {
                     const attr: Attr(Attrs) = try .init(blob);
                     switch (attr.type) {
@@ -166,9 +167,8 @@ fn dumpScan(stdout: anytype, fid: u16) !void {
     try stdout.print("\n\n\nsent msg {any}\n", .{msg.data[0..msg.len]});
 
     var nl_more: bool = true;
+    var scan: nl.NewMessage(NlMsgType, NlHdrFlags.Get, CtrlMsgHdr, 0x8000) = try .initRecv(s);
     while (nl_more) {
-        var scan: nl.NewMessage(NlMsgType, NlHdrFlags.Get, CtrlMsgHdr, 0x8000) = try .initRecv(s);
-        std.debug.assert(scan.extra == 0);
         try stdout.print("hdr {any}\n", .{scan.header});
         try stdout.print("base {any}\n", .{scan.base});
         var offset: usize = 0;
@@ -213,6 +213,11 @@ fn dumpScan(stdout: anytype, fid: u16) !void {
                     blob = scan.payload(offset);
                 }
             },
+        }
+        if (scan.extra > 0) {
+            scan = try scan.initFromExtra();
+        } else if (nl_more) {
+            scan = try .initRecv(s);
         }
     }
 }

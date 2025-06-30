@@ -354,6 +354,23 @@ pub fn NewMessage(MHT: type, MHF: type, BT: type, PAYLOAD_SIZE: usize) type {
             return s;
         }
 
+        pub fn initFromExtra(extra: *Self) !Self {
+            if (extra.extra < header_size) return error.InvalidData;
+            const blob: []align(4) u8 = @alignCast(extra.data[extra.len..][0..extra.extra]);
+
+            var s: Self = .{
+                .header = @as(*MsgHdr(MHT, MHF), @ptrCast(blob)).*,
+                .base = @as(*BT, @ptrCast(blob[@sizeOf(MsgHdr(MHT, MHF))..])).*,
+                .data = undefined,
+            };
+            if (s.header.len > blob.len) return error.InvalidHeader;
+            s.len = s.header.len;
+            s.extra = blob.len - s.len;
+            @memcpy(s.data[0..blob.len], blob[0..]);
+
+            return s;
+        }
+
         pub fn payload(s: *const Self, offset: usize) []align(4) const u8 {
             const os = offset + 3 & ~@as(usize, 3);
             return @alignCast(s.data[header_size + os .. s.len]);
