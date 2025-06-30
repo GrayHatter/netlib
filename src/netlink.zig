@@ -315,22 +315,48 @@ pub const generic = struct {
     };
 };
 
-pub fn newMessage(MHT: type, MHF: type, BT: type, PAYLOAD_SIZE: usize) type {
+pub fn NewMessage(MHT: type, MHF: type, BT: type, PAYLOAD_SIZE: usize) type {
     return struct {
         header: MsgHdr(MHT, MHF),
         base: BT,
-        data: [data_size]u8 = undefined,
+        data: [data_size]u8 align(4) = undefined,
 
         len: usize = @sizeOf(MsgHdr(MHT, MHF)) + @sizeOf(BT),
 
+        extra: usize = 0,
+
         pub const Self = @This();
-        pub const data_size = @sizeOf(MsgHdr(MHT, MHF)) + @sizeOf(BT) + PAYLOAD_SIZE;
+        pub const header_size = @sizeOf(MsgHdr(MHT, MHF)) + @sizeOf(BT);
+        pub const data_size = header_size + PAYLOAD_SIZE;
 
         pub fn init(h: MsgHdr(MHT, MHF), b: BT) Self {
             return .{
                 .header = h,
                 .base = b,
             };
+        }
+
+        pub fn initRecv(sock: socket.Socket) !Self {
+            var s: Self = .{
+                .header = undefined,
+                .base = undefined,
+                .data = @splat(0),
+            };
+
+            const size = try sock.read(&s.data);
+            if (size < @sizeOf(MsgHdr(MHT, MHF)) + @sizeOf(BT)) return error.InvalidRead;
+
+            s.header = @as(*MsgHdr(MHT, MHF), @ptrCast(s.data[0..])).*;
+            if (size < s.header.len) return error.InvalidMsgHeader;
+            s.base = @as(*BT, @ptrCast(s.data[@sizeOf(MsgHdr(MHT, MHF))..])).*;
+            s.len = s.header.len;
+            s.extra = size - s.len;
+            return s;
+        }
+
+        pub fn payload(s: *const Self, offset: usize) []align(4) const u8 {
+            const os = offset + 3 & ~@as(usize, 3);
+            return @alignCast(s.data[header_size + os .. s.len]);
         }
 
         pub fn packAttr(s: *Self, AT: type, attr: AT) !void {
