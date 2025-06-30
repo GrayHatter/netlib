@@ -40,6 +40,7 @@ pub fn sendMsg() !void {
     if (fid != 0) {
         try dumpProtocol(stdout, fid);
         try dumpWiphy(stdout, fid);
+        try dumpIface(stdout, fid);
         try dumpScan(stdout, fid);
     }
 
@@ -107,12 +108,14 @@ fn dumpWiphy(stdout: anytype, fid: u16) !void {
         .{ .cmd = .GET_WIPHY },
     );
     try msg.send(s);
+    try stdout.print("sentmsg {any}\n", .{msg.data[0..msg.len]});
+    try stdout.print("sentmsg {}\n", .{msg.base});
 
     var nl_more: bool = true;
     while (nl_more) {
         var wiphy: nl.NewMessage(NlMsgType, NlHdrFlags.Get, CtrlMsgHdr, 0x8000) = try .initRecv(s);
         std.debug.assert(wiphy.extra == 0);
-        try stdout.print("\n\n\nhdr {any}\n", .{wiphy.header});
+        try stdout.print("hdr {any}\n", .{wiphy.header});
         try stdout.print("\n\n\nbase {any}\n", .{wiphy.base});
         switch (wiphy.header.type) {
             .DONE => nl_more = false,
@@ -141,6 +144,62 @@ fn dumpWiphy(stdout: anytype, fid: u16) !void {
                     }
                     offset += attr.len_aligned;
                     blob = wiphy.payload(offset);
+                }
+            },
+        }
+    }
+}
+
+fn dumpIface(stdout: anytype, fid: u16) !void {
+    const s = try socket(.netlink_generic);
+    defer s.close();
+
+    try stdout.print("\n\n\ndump wiphy\n", .{});
+
+    const NlMsgHdr = nl.MsgHdr(NlMsgType, NlHdrFlags.Get);
+    const CtrlMsgHdr = nl.generic.MsgHdr(Cmd);
+
+    var msg: nl.NewMessage(u16, NlHdrFlags.Get, CtrlMsgHdr, 0) = .init(
+        .{ .len = 0, .type = fid, .flags = .DUMP, .seq = 17 },
+        .{ .cmd = .GET_INTERFACE },
+    );
+    try msg.send(s);
+    try stdout.print("sentmsg {any}\n", .{msg.data[0..msg.len]});
+    try stdout.print("sentmsg {}\n", .{msg.base});
+
+    var nl_more: bool = true;
+    while (nl_more) {
+        var iface: nl.NewMessage(NlMsgType, NlHdrFlags.Get, CtrlMsgHdr, 0x8000) = try .initRecv(s);
+        std.debug.assert(iface.extra == 0);
+        try stdout.print("hdr {any}\n", .{iface.header});
+        try stdout.print("\n\n\nbase {any}\n", .{iface.base});
+        switch (iface.header.type) {
+            .DONE => nl_more = false,
+            .ERROR => {
+                try stdout.print("error {} \n", .{iface.header});
+                if (iface.header.len > @sizeOf(NlMsgHdr)) {
+                    const blob = iface.payload(0);
+                    const emsg: *align(4) const nlmsgerr = @ptrCast(blob);
+                    try stdout.print("error msg {} \n", .{emsg});
+                }
+                nl_more = false;
+            },
+            else => {
+                var offset: usize = 0;
+                var blob = iface.payload(offset);
+                while (blob.len > 0) {
+                    const attr: Attr(Attrs) = try .init(blob);
+                    switch (attr.type) {
+                        //.iface => try stdout.print("    name: {s}\n", .{attr.data[0 .. attr.data.len - 1 :0]}),
+                        else => {
+                            try stdout.print(
+                                "    attr.type {} [{}] {any}\n",
+                                .{ attr.type, attr.len, if (attr.len <= 40) attr.data else "" },
+                            );
+                        },
+                    }
+                    offset += attr.len_aligned;
+                    blob = iface.payload(offset);
                 }
             },
         }
