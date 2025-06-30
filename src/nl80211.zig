@@ -40,6 +40,7 @@ pub fn sendMsg() !void {
     if (fid != 0) {
         try dumpProtocol(stdout, fid);
         try dumpWiphy(stdout, fid);
+        try dumpScan(stdout, fid);
     }
 
     try stdout.print("done\n", .{});
@@ -111,7 +112,8 @@ fn dumpWiphy(stdout: anytype, fid: u16) !void {
     while (nl_more) {
         var wiphy: nl.NewMessage(NlMsgType, NlHdrFlags.Get, CtrlMsgHdr, 0x8000) = try .initRecv(s);
         std.debug.assert(wiphy.extra == 0);
-        //try stdout.print("\n\n\nhdr {any}\n", .{wiphy.header});
+        try stdout.print("\n\n\nhdr {any}\n", .{wiphy.header});
+        try stdout.print("\n\n\nbase {any}\n", .{wiphy.base});
         var offset: usize = 0;
         var blob = wiphy.payload(offset);
         switch (wiphy.header.type) {
@@ -138,6 +140,64 @@ fn dumpWiphy(stdout: anytype, fid: u16) !void {
                     }
                     offset += attr.len_aligned;
                     blob = wiphy.payload(offset);
+                }
+            },
+        }
+    }
+}
+
+fn dumpScan(stdout: anytype, fid: u16) !void {
+    const s = try socket(.netlink_generic);
+    defer s.close();
+
+    try stdout.print("\n\n\ndump scan\n", .{});
+
+    const NlMsgHdr = nl.MsgHdr(NlMsgType, NlHdrFlags.Get);
+    const CtrlMsgHdr = nl.generic.MsgHdr(Cmd);
+
+    var msg: nl.NewMessage(u16, NlHdrFlags.Get, CtrlMsgHdr, 8) = .init(
+        .{ .len = 0, .type = fid, .flags = .DUMP, .seq = 22 },
+        .{ .cmd = .GET_SCAN },
+    );
+    const ifidx: u32 = 2;
+    try msg.packAttr(Attr(Attrs), .initNew(.IFINDEX, std.mem.asBytes(&ifidx)));
+    try msg.send(s);
+
+    try stdout.print("\n\n\nsent msg {any}\n", .{msg.data[0..msg.len]});
+
+    var nl_more: bool = true;
+    while (nl_more) {
+        var scan: nl.NewMessage(NlMsgType, NlHdrFlags.Get, CtrlMsgHdr, 0x8000) = try .initRecv(s);
+        std.debug.assert(scan.extra == 0);
+        try stdout.print("\n\n\nhdr {any}\n", .{scan.header});
+        try stdout.print("\n\n\nbase {any}\n", .{scan.base});
+        try stdout.print("\n\n\nbase {any}\n", .{scan.data[0..scan.len]});
+        var offset: usize = 0;
+        var blob = scan.payload(offset);
+        switch (scan.header.type) {
+            .DONE => nl_more = false,
+            .ERROR => {
+                try stdout.print("error {} \n", .{scan.header});
+                if (scan.header.len > @sizeOf(NlMsgHdr)) {
+                    const emsg: *align(4) const nlmsgerr = @ptrCast(blob);
+                    try stdout.print("error msg {} \n", .{emsg});
+                }
+                nl_more = false;
+            },
+            else => {
+                while (blob.len > 0) {
+                    const attr: Attr(Attrs) = try .init(blob);
+                    switch (attr.type) {
+                        .WIPHY_NAME => try stdout.print("    name: {s}\n", .{attr.data[0 .. attr.data.len - 1 :0]}),
+                        else => {
+                            try stdout.print(
+                                "    attr.type {} [{}] {any}\n",
+                                .{ attr.type, attr.len, if (attr.len <= 40) attr.data else "" },
+                            );
+                        },
+                    }
+                    offset += attr.len_aligned;
+                    blob = scan.payload(offset);
                 }
             },
         }

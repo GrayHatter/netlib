@@ -159,6 +159,8 @@ pub const Cmd = enum(u8) {
     EPCS_CFG,
     __AFTER_LAST,
 
+    _,
+
     pub const NEW_BEACON: Cmd = .START_AP;
     pub const DEL_BEACON: Cmd = .STOP_AP;
     pub const ACTION: Cmd = .FRAME;
