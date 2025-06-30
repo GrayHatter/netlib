@@ -169,9 +169,8 @@ fn dumpScan(stdout: anytype, fid: u16) !void {
     while (nl_more) {
         var scan: nl.NewMessage(NlMsgType, NlHdrFlags.Get, CtrlMsgHdr, 0x8000) = try .initRecv(s);
         std.debug.assert(scan.extra == 0);
-        try stdout.print("\n\n\nhdr {any}\n", .{scan.header});
-        try stdout.print("\n\n\nbase {any}\n", .{scan.base});
-        try stdout.print("\n\n\nbase {any}\n", .{scan.data[0..scan.len]});
+        try stdout.print("hdr {any}\n", .{scan.header});
+        try stdout.print("base {any}\n", .{scan.base});
         var offset: usize = 0;
         var blob = scan.payload(offset);
         switch (scan.header.type) {
@@ -188,7 +187,21 @@ fn dumpScan(stdout: anytype, fid: u16) !void {
                 while (blob.len > 0) {
                     const attr: Attr(Attrs) = try .init(blob);
                     switch (attr.type) {
-                        .WIPHY_NAME => try stdout.print("    name: {s}\n", .{attr.data[0 .. attr.data.len - 1 :0]}),
+                        .GENERATION => try stdout.print("    GENERATION {any}\n", .{attr.data}),
+                        .IFINDEX => try stdout.print("    IFINDEX {}\n", .{@as(*const u32, @ptrCast(attr.data.ptr)).*}),
+                        .WDEV => try stdout.print("    WDEV {}\n", .{@as(*align(4) const u64, @ptrCast(attr.data.ptr)).*}),
+                        .BSS => {
+                            try stdout.print("    BSSDATA\n", .{});
+                            var bss_attr_offset: usize = 0;
+                            while (bss_attr_offset < attr.len_aligned - 4) {
+                                const bss_attr: Attr(kapi.Bss.Info) = try .init(@alignCast(attr.data[bss_attr_offset..]));
+                                try stdout.print(
+                                    "        bss_attr.type {} [{}] {any}\n",
+                                    .{ bss_attr.type, bss_attr.len, if (bss_attr.len <= 40) bss_attr.data else "" },
+                                );
+                                bss_attr_offset += bss_attr.len_aligned;
+                            }
+                        },
                         else => {
                             try stdout.print(
                                 "    attr.type {} [{}] {any}\n",

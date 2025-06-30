@@ -509,3 +509,33 @@ pub const Attrs = enum(u16) {
     ASSOC_MLD_EXT_CAPA_OPS,
     __AFTER_LAST,
 };
+
+pub const Bss = struct {
+    pub const Info = enum {
+        __INVALID,
+        BSSID,
+        FREQUENCY,
+        TSF,
+        BEACON_INTERVAL,
+        CAPABILITY,
+        INFORMATION_ELEMENTS,
+        SIGNAL_MBM,
+        SIGNAL_UNSPEC,
+        STATUS,
+        SEEN_MS_AGO,
+        BEACON_IES,
+        CHAN_WIDTH,
+        BEACON_TSF,
+        PRESP_DATA,
+        LAST_SEEN_BOOTTIME,
+        PAD,
+        PARENT_TSF,
+        PARENT_BSSID,
+        CHAIN_SIGNAL,
+        FREQUENCY_OFFSET,
+        MLO_LINK_ID,
+        MLD_ADDR,
+        USE_FOR,
+        CANNOT_USE_REASONS,
+    };
+};
