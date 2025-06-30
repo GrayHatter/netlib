@@ -117,7 +117,7 @@ fn dumpWiphy(stdout: anytype, fid: u16) !void {
             try stdout.print("\n\n\nhdr {any}\n", .{wiphy.header});
             try stdout.print("cmsghdr {any}\n\n", .{wiphy.base});
             var offset: usize = 0;
-            const blob = wiphy.payload(offset);
+            var blob = wiphy.payload(offset);
             switch (wiphy.header.type) {
                 .DONE => nl_more = false,
                 .ERROR => {
@@ -129,17 +129,20 @@ fn dumpWiphy(stdout: anytype, fid: u16) !void {
                     nl_more = false;
                 },
                 else => {
-                    const attr: Attr(Attrs) = try .init(blob);
-                    switch (attr.type) {
-                        .WIPHY_NAME => try stdout.print("    name: {s}\n", .{attr.data[0 .. attr.data.len - 1 :0]}),
-                        else => {
-                            try stdout.print(
-                                "    attr.type {} [{}] {any}\n",
-                                .{ attr.type, attr.len, if (attr.len <= 40) attr.data else "" },
-                            );
-                        },
+                    while (blob.len > 0) {
+                        const attr: Attr(Attrs) = try .init(blob);
+                        switch (attr.type) {
+                            .WIPHY_NAME => try stdout.print("    name: {s}\n", .{attr.data[0 .. attr.data.len - 1 :0]}),
+                            else => {
+                                try stdout.print(
+                                    "    attr.type {} [{}] {any}\n",
+                                    .{ attr.type, attr.len, if (attr.len <= 40) attr.data else "" },
+                                );
+                            },
+                        }
+                        offset += attr.len_aligned;
+                        blob = wiphy.payload(offset);
                     }
-                    offset += attr.len_aligned;
                 },
             }
         }
