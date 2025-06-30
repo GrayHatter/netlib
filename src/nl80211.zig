@@ -4,10 +4,10 @@ pub fn sendMsg() !void {
     const s = try socket(.netlink_generic);
     defer s.close();
 
-    const CtrlMsgHdr = netlink.generic.MsgHdr(netlink.generic.Ctrl.Cmd);
-    const AttrCtrlHdr = Attr(netlink.generic.Ctrl.Attr);
+    const CtrlMsgHdr = nl.generic.MsgHdr(nl.generic.Ctrl.Cmd);
+    const AttrCtrlHdr = Attr(nl.generic.Ctrl.Attr);
 
-    var msg: netlink.NewMessage(netlink.generic.GENL, netlink.HeaderFlags.Ack, CtrlMsgHdr, 12) = .init(
+    var msg: nl.NewMessage(nl.generic.GENL, NlHdrFlags.Ack, CtrlMsgHdr, 12) = .init(
         .{ .len = 0, .type = .ID_CTRL, .flags = .ReqAck, .seq = 1 },
         .{ .cmd = .GETFAMILY },
     );
@@ -17,7 +17,7 @@ pub fn sendMsg() !void {
     var fid: u16 = 0;
     var nl_more: bool = true;
     while (nl_more) {
-        var family: netlink.NewMessage(netlink.MsgType, netlink.HeaderFlags.Get, CtrlMsgHdr, 0x8000) = try .initRecv(s);
+        var family: nl.NewMessage(NlMsgType, NlHdrFlags.Get, CtrlMsgHdr, 0x8000) = try .initRecv(s);
         std.debug.assert(family.extra == 0);
 
         try stdout.print("flags {} {b} \n", .{ family.header.flags, @as(u16, @bitCast(family.header.flags)) });
@@ -49,8 +49,8 @@ fn dumpProtocol(stdout: anytype, fid: u16) !void {
         defer s.close();
         try stdout.print("\n\n\ndump prot features \n\n\n", .{});
 
-        const CtrlMsgHdr = netlink.generic.MsgHdr(Cmd);
-        var msg: netlink.NewMessage(u16, netlink.HeaderFlags.Get, CtrlMsgHdr, 0) = .init(
+        const CtrlMsgHdr = nl.generic.MsgHdr(Cmd);
+        var msg: nl.NewMessage(u16, NlHdrFlags.Get, CtrlMsgHdr, 0) = .init(
             .{ .len = 0, .type = fid, .flags = .ReqAck, .seq = 6 },
             .{ .cmd = .GET_PROTOCOL_FEATURES },
         );
@@ -61,7 +61,7 @@ fn dumpProtocol(stdout: anytype, fid: u16) !void {
         while (nl_more) {
             var size = try s.read(&rbuffer);
             var start: usize = 0;
-            const NlMsgHdr = netlink.MsgHdr(netlink.MsgType, netlink.HeaderFlags.Get);
+            const NlMsgHdr = nl.MsgHdr(NlMsgType, NlHdrFlags.Get);
             while (size > 0) {
                 if (size < @sizeOf(NlMsgHdr)) {
                     try stdout.print("response too small {}\n", .{size});
@@ -101,10 +101,10 @@ fn dumpWiphy(stdout: anytype, fid: u16) !void {
 
         try stdout.print("\n\n\ndump wiphy \n\n\n", .{});
 
-        const NlMsgHdr = netlink.MsgHdr(netlink.MsgType, netlink.HeaderFlags.Get);
-        const CtrlMsgHdr = netlink.generic.MsgHdr(Cmd);
+        const NlMsgHdr = nl.MsgHdr(NlMsgType, NlHdrFlags.Get);
+        const CtrlMsgHdr = nl.generic.MsgHdr(Cmd);
 
-        var msg: netlink.NewMessage(u16, netlink.HeaderFlags.Get, CtrlMsgHdr, 0) = .init(
+        var msg: nl.NewMessage(u16, NlHdrFlags.Get, CtrlMsgHdr, 0) = .init(
             .{ .len = 0, .type = fid, .flags = .DUMP, .seq = 17 },
             .{ .cmd = .GET_WIPHY },
         );
@@ -112,12 +112,7 @@ fn dumpWiphy(stdout: anytype, fid: u16) !void {
 
         var nl_more: bool = true;
         while (nl_more) {
-            var wiphy: netlink.NewMessage(
-                netlink.MsgType,
-                netlink.HeaderFlags.Get,
-                CtrlMsgHdr,
-                0x8000,
-            ) = try .initRecv(s);
+            var wiphy: nl.NewMessage(NlMsgType, NlHdrFlags.Get, CtrlMsgHdr, 0x8000) = try .initRecv(s);
             std.debug.assert(wiphy.extra == 0);
             try stdout.print("\n\n\nhdr {any}\n", .{wiphy.header});
             try stdout.print("cmsghdr {any}\n\n", .{wiphy.base});
@@ -155,7 +150,7 @@ pub fn dumpAttrs(stdout: anytype, data: []align(4) const u8) !u16 {
     var offset: usize = 0;
     var family_id: u16 = 0;
     while (offset < data.len) {
-        const attr: Attr(netlink.generic.Ctrl.Attr) = try .init(@alignCast(data[offset..]));
+        const attr: Attr(nl.generic.Ctrl.Attr) = try .init(@alignCast(data[offset..]));
         switch (attr.type) {
             .FAMILY_NAME => try stdout.print("name: {s}\n", .{attr.data[0 .. attr.data.len - 1 :0]}),
             .FAMILY_ID => family_id = @as(*const u16, @ptrCast(attr.data)).*,
@@ -173,15 +168,15 @@ pub fn dumpAttrs(stdout: anytype, data: []align(4) const u8) !u16 {
                     const nattr: Attr(u16) = try .init(@alignCast(attr.data[noffset..]));
                     noffset += nattr.len;
 
-                    const nattr_0: Attr(netlink.generic.Ctrl.AttrOps) = try .init(nattr.data[0..8]);
-                    const nattr_1: Attr(netlink.generic.Ctrl.AttrOps) = try .init(nattr.data[8..16]);
+                    const nattr_0: Attr(nl.generic.Ctrl.AttrOps) = try .init(nattr.data[0..8]);
+                    const nattr_1: Attr(nl.generic.Ctrl.AttrOps) = try .init(nattr.data[8..16]);
 
                     // I couldn't find documentation, so I'm just expermenting
                     // with the way iproute2/genl works
                     const op_id: *const u32 = @ptrCast(nattr_0.data[0..4]);
                     try stdout.print("    {}\n", .{@as(Cmd, @enumFromInt(op_id.*))});
                     try stdout.print("        op id {} (0x{x}) ", .{ op_id.*, op_id.* });
-                    const cap: *const netlink.generic.CAP = @ptrCast(nattr_1.data);
+                    const cap: *const nl.generic.CAP = @ptrCast(nattr_1.data);
                     if (cap.ADMIN_PERM) try stdout.print(" admin required,", .{});
                     if (cap.DO) try stdout.print(" can do,", .{});
                     if (cap.HAS_POLICY) try stdout.print(" has policy,", .{});
@@ -205,16 +200,19 @@ pub const nlmsgerr = extern struct {
     err: i32,
     msg: nlmsghdr,
 
-    const nlmsghdr = netlink.MsgHdr(netlink.MsgType, netlink.HeaderFlags.Get);
+    const nlmsghdr = nl.MsgHdr(NlMsgType, NlHdrFlags.Get);
 };
+
+const NlHdrFlags = nl.HeaderFlags;
+const NlMsgType = nl.MsgType;
 
 const kapi = @import("nl80211/kapi.zig");
 const Attrs = kapi.Attrs;
 const Cmd = kapi.Cmd;
 
-const netlink = @import("netlink.zig");
+const nl = @import("netlink.zig");
 const socket = @import("socket.zig").socket;
 
-const Attr = netlink.Attr;
+const Attr = nl.Attr;
 
 const std = @import("std");
