@@ -4,7 +4,6 @@ pub fn sendMsg() !void {
     const s = try socket(.netlink_generic);
     defer s.close();
 
-    const NlMsgHdr = netlink.MsgHdr(netlink.MsgType, netlink.HeaderFlags.Get);
     const CtrlMsgHdr = netlink.generic.MsgHdr(netlink.generic.Ctrl.Cmd);
     const AttrCtrlHdr = Attr(netlink.generic.Ctrl.Attr);
 
@@ -15,39 +14,24 @@ pub fn sendMsg() !void {
     try msg.packAttr(AttrCtrlHdr, .initNew(.FAMILY_NAME, @alignCast("nl80211\x00")));
     try msg.send(s);
 
-    var rbuffer: [0x8000]u8 align(4) = undefined;
     var fid: u16 = 0;
     var nl_more: bool = true;
     while (nl_more) {
-        var size = try s.read(&rbuffer);
-        var start: usize = 0;
-        while (size > 0) {
-            if (size < @sizeOf(NlMsgHdr)) {
-                try stdout.print("response too small {}\n", .{size});
-                @panic("");
-            }
+        var family: netlink.NewMessage(netlink.MsgType, netlink.HeaderFlags.Get, CtrlMsgHdr, 0x8000) = try .initRecv(s);
+        std.debug.assert(family.extra == 0);
 
-            try stdout.print("\n\n\n", .{});
-            const hdr: *NlMsgHdr = @ptrCast(@alignCast(rbuffer[start..]));
-            const aligned: usize = hdr.len + 3 & ~@as(usize, 3);
-
-            try stdout.print("flags {} {b} \n", .{ hdr.flags, @as(u16, @bitCast(hdr.flags)) });
-            switch (hdr.type) {
-                .ERROR => {
-                    try stdout.print("error {} \n", .{hdr});
-                    if (hdr.len > @sizeOf(NlMsgHdr)) {
-                        const emsg: *align(4) nlmsgerr = @alignCast(@ptrCast(rbuffer[start + @sizeOf(NlMsgHdr) ..]));
-                        try stdout.print("error msg {} \n", .{emsg});
-                    }
-                    nl_more = false;
-                },
-
-                .DONE => nl_more = false,
-                else => fid = try dump(stdout, @alignCast(rbuffer[start + @sizeOf(NlMsgHdr) .. aligned])),
-            }
-
-            size -|= aligned;
-            start += aligned;
+        try stdout.print("flags {} {b} \n", .{ family.header.flags, @as(u16, @bitCast(family.header.flags)) });
+        switch (family.header.type) {
+            .DONE => nl_more = false,
+            .ERROR => {
+                try stdout.print("error {} \n", .{family.header});
+                if (family.header.len > @sizeOf(@TypeOf(family.header))) {
+                    const emsg: *align(4) const nlmsgerr = @alignCast(@ptrCast(&family.base));
+                    try stdout.print("error msg {} \n", .{emsg});
+                }
+                nl_more = false;
+            },
+            else => fid = try dumpAttrs(stdout, @alignCast(family.payload(0))),
         }
     }
 
@@ -169,15 +153,9 @@ fn dumpWiphy(stdout: anytype, fid: u16) !void {
     }
 }
 
-pub fn dump(stdout: anytype, data: []align(4) const u8) !u16 {
+pub fn dumpAttrs(stdout: anytype, data: []align(4) const u8) !u16 {
     var offset: usize = 0;
-    //const rtattr = std.os.linux.rtattr;
-    const genlmsg: *align(4) const netlink.generic.MsgHdr(netlink.generic.Ctrl.Cmd) = @ptrCast(@alignCast(data[offset..]));
-    try stdout.print("genl {any}\n", .{genlmsg});
-    offset += @sizeOf(netlink.generic.MsgHdr(netlink.generic.Ctrl.Cmd));
-
     var family_id: u16 = 0;
-
     while (offset < data.len) {
         const attr: Attr(netlink.generic.Ctrl.Attr) = try .init(@alignCast(data[offset..]));
         switch (attr.type) {
