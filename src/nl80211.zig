@@ -52,17 +52,17 @@ pub fn sendMsg() !void {
     }
 
     if (fid != 0) {
-        try msgFamily(stdout, fid);
+        try dumpProtocol(stdout, fid);
+        try dumpWiphy(stdout, fid);
     }
 
     try stdout.print("done\n", .{});
 }
 
-fn msgFamily(stdout: anytype, fid: u16) !void {
-    const s = try socket(.netlink_generic);
-    defer s.close();
-
+fn dumpProtocol(stdout: anytype, fid: u16) !void {
     {
+        const s = try socket(.netlink_generic);
+        defer s.close();
         try stdout.print("\n\n\ndump prot features \n\n\n", .{});
 
         const CtrlMsgHdr = netlink.generic.MsgHdr(Cmd);
@@ -108,7 +108,6 @@ fn msgFamily(stdout: anytype, fid: u16) !void {
             }
         }
     }
-    try dumpWiphy(stdout, fid);
 }
 
 fn dumpWiphy(stdout: anytype, fid: u16) !void {
