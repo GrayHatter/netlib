@@ -451,7 +451,8 @@ pub const nlmsgerr = extern struct {
     const nlmsghdr = netlink.MsgHdr(netlink.MsgType, netlink.HeaderFlags.Get);
 };
 
-const Attrs = @import("nl80211/attr.zig").Attrs;
+const kapi = @import("nl80211/kapi.zig");
+const Attrs = kapi.Attrs;
 
 const netlink = @import("netlink.zig");
 const socket = @import("socket.zig").socket;
