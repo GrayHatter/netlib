@@ -24,10 +24,12 @@ pub fn sendMsg() !void {
         switch (family.header.type) {
             .DONE => nl_more = false,
             .ERROR => {
-                try stdout.print("error {} \n", .{family.header});
                 if (family.header.len > @sizeOf(@TypeOf(family.header))) {
-                    const emsg: *align(4) const nlmsgerr = @alignCast(@ptrCast(&family.base));
-                    try stdout.print("error msg {} \n", .{emsg});
+                    const emsg: *align(4) nlmsgerr = @alignCast(@ptrCast(&family.base));
+                    if (emsg.err != 0) {
+                        try stdout.print("error {} \n", .{family.header});
+                        try stdout.print("error msg {} \n", .{emsg});
+                    }
                 }
                 nl_more = false;
             },
@@ -47,7 +49,7 @@ fn dumpProtocol(stdout: anytype, fid: u16) !void {
     {
         const s = try socket(.netlink_generic);
         defer s.close();
-        try stdout.print("\n\n\ndump prot features \n\n\n", .{});
+        try stdout.print("\n\n\ndump prot features\n", .{});
 
         const CtrlMsgHdr = nl.generic.MsgHdr(Cmd);
         var msg: nl.NewMessage(u16, NlHdrFlags.Get, CtrlMsgHdr, 0) = .init(
@@ -67,25 +69,23 @@ fn dumpProtocol(stdout: anytype, fid: u16) !void {
                     try stdout.print("response too small {}\n", .{size});
                     @panic("");
                 }
-                try stdout.print("\n\n\n", .{});
-                try stdout.print("data\n{any}\n\n\n", .{rbuffer[0..size]});
+                try stdout.print("    data{any}\n", .{rbuffer[0..size]});
                 const hdr: *NlMsgHdr = @ptrCast(@alignCast(rbuffer[start..]));
                 const aligned: usize = hdr.len + 3 & ~@as(usize, 3);
 
                 switch (hdr.type) {
+                    .DONE => nl_more = false,
                     .ERROR => {
-                        try stdout.print("error {} \n", .{hdr});
                         if (hdr.len > @sizeOf(NlMsgHdr)) {
                             const emsg: *align(4) nlmsgerr = @alignCast(@ptrCast(rbuffer[start + @sizeOf(NlMsgHdr) ..]));
-                            try stdout.print("error msg {} \n", .{emsg});
+                            if (emsg.err != 0) {
+                                try stdout.print("error {} \n", .{hdr});
+                                try stdout.print("error msg {} \n", .{emsg});
+                            }
                         }
                         nl_more = false;
                     },
-
-                    .DONE => nl_more = false,
-                    else => {
-                        try stdout.print("hdr {any}\n", .{hdr});
-                    },
+                    else => try stdout.print("    hdr {any}\n", .{hdr}),
                 }
                 size -|= aligned;
                 start += aligned;
@@ -99,7 +99,7 @@ fn dumpWiphy(stdout: anytype, fid: u16) !void {
         const s = try socket(.netlink_generic);
         defer s.close();
 
-        try stdout.print("\n\n\ndump wiphy \n\n\n", .{});
+        try stdout.print("\n\n\ndump wiphy\n", .{});
 
         const NlMsgHdr = nl.MsgHdr(NlMsgType, NlHdrFlags.Get);
         const CtrlMsgHdr = nl.generic.MsgHdr(Cmd);
@@ -114,8 +114,7 @@ fn dumpWiphy(stdout: anytype, fid: u16) !void {
         while (nl_more) {
             var wiphy: nl.NewMessage(NlMsgType, NlHdrFlags.Get, CtrlMsgHdr, 0x8000) = try .initRecv(s);
             std.debug.assert(wiphy.extra == 0);
-            try stdout.print("\n\n\nhdr {any}\n", .{wiphy.header});
-            try stdout.print("cmsghdr {any}\n\n", .{wiphy.base});
+            //try stdout.print("\n\n\nhdr {any}\n", .{wiphy.header});
             var offset: usize = 0;
             var blob = wiphy.payload(offset);
             switch (wiphy.header.type) {
