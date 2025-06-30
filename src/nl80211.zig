@@ -134,19 +134,17 @@ fn dumpWiphy(stdout: anytype, fid: u16) !void {
                     nl_more = false;
                 },
                 else => {
-                    while (blob.len > 4) {
-                        const attr: Attr(Attrs) = try .init(blob);
-                        switch (attr.type) {
-                            .WIPHY_NAME => try stdout.print("    name: {s}\n", .{attr.data[0 .. attr.data.len - 1 :0]}),
-                            else => {
-                                try stdout.print(
-                                    "    attr.type {} [{}] {any}\n",
-                                    .{ attr.type, attr.len, if (attr.len <= 40) attr.data else "" },
-                                );
-                            },
-                        }
-                        offset += attr.len_aligned;
+                    const attr: Attr(Attrs) = try .init(blob);
+                    switch (attr.type) {
+                        .WIPHY_NAME => try stdout.print("    name: {s}\n", .{attr.data[0 .. attr.data.len - 1 :0]}),
+                        else => {
+                            try stdout.print(
+                                "    attr.type {} [{}] {any}\n",
+                                .{ attr.type, attr.len, if (attr.len <= 40) attr.data else "" },
+                            );
+                        },
                     }
+                    offset += attr.len_aligned;
                 },
             }
         }
