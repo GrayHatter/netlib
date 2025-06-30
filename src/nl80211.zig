@@ -4,37 +4,19 @@ pub fn sendMsg() !void {
     const s = try socket(.netlink_generic);
 
     const NlMsgHdr = netlink.MsgHdr(netlink.MsgType, netlink.HeaderFlags.Get);
-    const GenlMsgHdr = netlink.MsgHdr(netlink.generic.GENL, netlink.HeaderFlags.Ack);
     const CtrlMsgHdr = netlink.generic.MsgHdr(netlink.generic.Ctrl.Cmd);
-    const AttrCtrlHdr = Attr(netlink.generic.Ctrl.Attr).Header;
+    const AttrCtrlHdr = Attr(netlink.generic.Ctrl.Attr);
 
-    const full_size = (@sizeOf(NlMsgHdr) + @sizeOf(CtrlMsgHdr) + @sizeOf(AttrCtrlHdr) + 8 + 3) & ~@as(usize, 3);
-
-    var w_buffer: [full_size]u8 align(4) = undefined;
-    var w_list: std.ArrayListUnmanaged(u8) = .initBuffer(&w_buffer);
-    var w = w_list.fixedWriter();
-
-    const req_hdr: GenlMsgHdr = .{ .len = full_size, .type = .ID_CTRL, .flags = .ReqAck, .seq = 1 };
-    try w.writeStruct(req_hdr);
-
-    const r_genmsg: CtrlMsgHdr = .{ .cmd = .GETFAMILY };
-    try w.writeStruct(r_genmsg);
-
-    const attr: AttrCtrlHdr = .{ .len = 12, .type = .FAMILY_NAME };
-    try w.writeStruct(attr);
-    try w.writeAll("nl80211");
-    try w.writeByte(0);
-
-    _ = try s.write(w_list.items);
-
-    try stdout.print("request {any}\n", .{w_list.items});
+    var msg: netlink.newMessage(netlink.generic.GENL, netlink.HeaderFlags.Ack, CtrlMsgHdr, 12) = .init(
+        .{ .len = 0, .type = .ID_CTRL, .flags = .ReqAck, .seq = 1 },
+        .{ .cmd = .GETFAMILY },
+    );
+    try msg.packAttr(AttrCtrlHdr, .initNew(.FAMILY_NAME, @alignCast("nl80211\x00")));
+    try msg.send(s);
 
     var rbuffer: [0x8000]u8 align(4) = undefined;
-
-    var nl_more: bool = true;
-
     var fid: u16 = 0;
-
+    var nl_more: bool = true;
     while (nl_more) {
         var size = try s.read(&rbuffer);
         var start: usize = 0;
@@ -81,33 +63,19 @@ fn msgFamily(stdout: anytype, fid: u16) !void {
     {
         try stdout.print("\n\n\ndump prot features \n\n\n", .{});
 
-        const NlMsgHdr = netlink.MsgHdr(netlink.MsgType, netlink.HeaderFlags.Get);
-        const GenlMsgHdr = netlink.MsgHdr(u16, netlink.HeaderFlags.Get);
         const CtrlMsgHdr = netlink.generic.MsgHdr(Cmd);
-
-        const full_size = (@sizeOf(GenlMsgHdr) + @sizeOf(CtrlMsgHdr) + 3) & ~@as(usize, 3);
-
-        var w_buffer: [full_size]u8 align(4) = undefined;
-        var w_list: std.ArrayListUnmanaged(u8) = .initBuffer(&w_buffer);
-        var w = w_list.fixedWriter();
-
-        const req_hdr: GenlMsgHdr = .{ .len = full_size, .type = fid, .flags = .ReqAck, .seq = 13 };
-        try w.writeStruct(req_hdr);
-        try stdout.print("req_hdr {any}\n\n\n", .{req_hdr});
-
-        try w.writeStruct(CtrlMsgHdr{ .cmd = .GET_PROTOCOL_FEATURES });
-
-        _ = try s.write(w_list.items);
-
-        try stdout.print("request {any}\n", .{w_list.items});
+        var msg: netlink.newMessage(u16, netlink.HeaderFlags.Get, CtrlMsgHdr, 0) = .init(
+            .{ .len = 0, .type = fid, .flags = .ReqAck, .seq = 6 },
+            .{ .cmd = .GET_PROTOCOL_FEATURES },
+        );
+        try msg.send(s);
 
         var rbuffer: [0x8000]u8 align(4) = undefined;
-
         var nl_more: bool = true;
-
         while (nl_more) {
             var size = try s.read(&rbuffer);
             var start: usize = 0;
+            const NlMsgHdr = netlink.MsgHdr(netlink.MsgType, netlink.HeaderFlags.Get);
             while (size > 0) {
                 if (size < @sizeOf(NlMsgHdr)) {
                     try stdout.print("response too small {}\n", .{size});
@@ -144,28 +112,14 @@ fn msgFamily(stdout: anytype, fid: u16) !void {
         const NlMsgHdr = netlink.MsgHdr(netlink.MsgType, netlink.HeaderFlags.Get);
         const CtrlMsgHdr = netlink.generic.MsgHdr(Cmd);
 
-        const full_size = (@sizeOf(NlMsgHdr) + @sizeOf(CtrlMsgHdr) + 3) & ~@as(usize, 3);
-
-        var w_buffer: [full_size]u8 align(4) = undefined;
-        var w_list: std.ArrayListUnmanaged(u8) = .initBuffer(&w_buffer);
-        var w = w_list.fixedWriter();
-
-        const req_hdr: NlMsgHdr = .{
-            .len = full_size,
-            .type = @enumFromInt(fid),
-            .flags = .DUMP,
-            .seq = 17,
-        };
-        try w.writeStruct(req_hdr);
-        //try stdout.print("req_hdr {any}\n\n\n", .{req_hdr});
-        try w.writeStruct(CtrlMsgHdr{ .cmd = .GET_WIPHY });
-        //try stdout.print("request {any}\n", .{w_list.items});
-        _ = try s.write(w_list.items);
-
-        var rbuffer: [0x8000]u8 align(4) = undefined;
+        var msg: netlink.newMessage(u16, netlink.HeaderFlags.Get, CtrlMsgHdr, 0) = .init(
+            .{ .len = 0, .type = fid, .flags = .DUMP, .seq = 17 },
+            .{ .cmd = .GET_WIPHY },
+        );
+        try msg.send(s);
 
         var nl_more: bool = true;
-
+        var rbuffer: [0x8000]u8 align(4) = undefined;
         while (nl_more) {
             var size = try s.read(&rbuffer);
             var start: usize = 0;

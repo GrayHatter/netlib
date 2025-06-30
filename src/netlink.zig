@@ -107,6 +107,16 @@ pub fn Attr(T: type) type {
 
         pub const Self = @This();
 
+        pub fn initNew(t: AttrType, data: []align(4) const u8) Self {
+            const aligned: u16 = @intCast((@sizeOf(Header) + data.len + 3) & ~@as(u16, 3));
+            return .{
+                .len = @intCast(@sizeOf(Header) + data.len),
+                .type = t,
+                .data = data,
+                .len_aligned = aligned,
+            };
+        }
+
         pub fn init(data: []align(4) const u8) !Self {
             const len: *const u16 = @ptrCast(data[0..2]);
             if (len.* > data.len or len.* < 4) return error.MalformedAttr;
@@ -138,13 +148,10 @@ pub const IFLA = packed struct(u16) {
         COST,
         PRIORITY,
         MASTER,
-
         /// Wireless Extension event
         WIRELESS,
-
         /// Protocol specific information for a link
         PROTINFO,
-
         TXQLEN,
         MAP,
         WEIGHT,
@@ -153,27 +160,20 @@ pub const IFLA = packed struct(u16) {
         LINKINFO,
         NET_NS_PID,
         IFALIAS,
-
         /// Number of VFs if device is SR-IOV PF
         NUM_VF,
-
         VFINFO_LIST,
         STATS64,
         VF_PORTS,
         PORT_SELF,
         AF_SPEC,
-
         /// Group the device belongs to
         GROUP,
-
         NET_NS_FD,
-
         /// Extended info mask, VFs, etc
         EXT_MASK,
-
         /// Promiscuity count: > 0 means acts PROMISC
         PROMISCUITY,
-
         NUM_TX_QUEUES,
         NUM_RX_QUEUES,
         CARRIER,
@@ -188,21 +188,17 @@ pub const IFLA = packed struct(u16) {
         PAD,
         XDP,
         EVENT,
-
         NEW_NETNSID,
         IF_NETNSID,
-
         CARRIER_UP_COUNT,
         CARRIER_DOWN_COUNT,
         NEW_IFINDEX,
         MIN_MTU,
         MAX_MTU,
-
         PROP_LIST,
         ALT_IFNAME, // Alternative ifname
         PERM_ADDRESS,
         PROTO_DOWN_REASON,
-
         // device (sysfs) name as parent, used instead
         // of IFLA_LINK where there's no parent netdev
         PARENT_DEV_NAME,
@@ -211,9 +207,7 @@ pub const IFLA = packed struct(u16) {
         TSO_MAX_SIZE,
         TSO_MAX_SEGS,
         ALLMULTI, // Allmulti count: > 0 means acts ALLMULTI
-
         DEVLINK_PORT,
-
         GSO_IPV4_MAX_SIZE,
         GRO_IPV4_MAX_SIZE,
         DPLL_PIN,
@@ -244,7 +238,6 @@ pub const IFA = packed struct(u16) {
         RT_PRIORITY,
         TARGET_NETNSID,
         PROTO,
-
         _,
     };
 };
@@ -322,5 +315,48 @@ pub const generic = struct {
     };
 };
 
+pub fn newMessage(MHT: type, MHF: type, BT: type, PAYLOAD_SIZE: usize) type {
+    return struct {
+        header: MsgHdr(MHT, MHF),
+        base: BT,
+        data: [data_size]u8 = undefined,
+
+        len: usize = @sizeOf(MsgHdr(MHT, MHF)) + @sizeOf(BT),
+
+        pub const Self = @This();
+        pub const data_size = @sizeOf(MsgHdr(MHT, MHF)) + @sizeOf(BT) + PAYLOAD_SIZE;
+
+        pub fn init(h: MsgHdr(MHT, MHF), b: BT) Self {
+            return .{
+                .header = h,
+                .base = b,
+            };
+        }
+
+        pub fn packAttr(s: *Self, AT: type, attr: AT) !void {
+            if (attr.len_aligned + s.len > data_size) return error.OutOfSpace;
+            @memcpy(s.data[s.len..][0..2], asBytes(&attr.len));
+            @memcpy(s.data[s.len..][2..4], asBytes(&attr.type));
+            @memcpy(s.data[s.len..][4..][0..attr.data.len], attr.data);
+            const padding = attr.len_aligned - attr.len;
+            if (padding > 0) {
+                @memset(s.data[s.len + 4 + attr.data.len ..][0..padding], 0);
+            }
+            s.len += attr.len_aligned;
+        }
+
+        pub fn send(s: *Self, sock: socket.Socket) !void {
+            var h: MsgHdr(MHT, MHF) = s.header;
+            h.len = @intCast(s.len);
+
+            s.data[0..@sizeOf(MsgHdr(MHT, MHF))].* = asBytes(&h).*;
+            s.data[@sizeOf(MsgHdr(MHT, MHF))..][0..@sizeOf(BT)].* = asBytes(&s.base).*;
+            _ = try sock.write(s.data[0..s.len]);
+        }
+    };
+}
+
+const socket = @import("socket.zig");
 const std = @import("std");
 const AF = std.posix.AF;
+const asBytes = std.mem.asBytes;
