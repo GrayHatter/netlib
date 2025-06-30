@@ -8,6 +8,10 @@ pub const Socket = struct {
     pub fn write(s: Socket, b: []const u8) !usize {
         return try posix.write(s.fd, b);
     }
+
+    pub fn close(s: Socket) void {
+        posix.close(s.fd);
+    }
 };
 
 pub const Flavor = enum {
