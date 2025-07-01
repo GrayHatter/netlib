@@ -251,6 +251,11 @@ pub const route = struct {
 };
 
 pub const generic = struct {
+    /// Experimental API
+    pub fn newSocket() !socket.Socket {
+        return try socket.socket(.netlink_generic);
+    }
+
     pub fn MsgHdr(T: type) type {
         comptime std.debug.assert(@sizeOf(T) == 1);
         return extern struct {
@@ -317,19 +322,20 @@ pub const generic = struct {
 
 pub fn NewMessage(MHT: type, MHF: type, BT: type, PAYLOAD_SIZE: usize) type {
     return struct {
-        header: MsgHdr(MHT, MHF),
+        header: Hdr,
         base: BT,
         data: [data_size]u8 align(4) = undefined,
 
-        len: usize = @sizeOf(MsgHdr(MHT, MHF)) + @sizeOf(BT),
+        len: usize = @sizeOf(Hdr) + @sizeOf(BT),
 
         extra: usize = 0,
 
         pub const Self = @This();
-        pub const header_size = @sizeOf(MsgHdr(MHT, MHF)) + @sizeOf(BT);
+        pub const Hdr = MsgHdr(MHT, MHF);
+        pub const header_size = @sizeOf(Hdr) + @sizeOf(BT);
         pub const data_size = header_size + PAYLOAD_SIZE;
 
-        pub fn init(h: MsgHdr(MHT, MHF), b: BT) Self {
+        pub fn init(h: Hdr, b: BT) Self {
             return .{
                 .header = h,
                 .base = b,
@@ -344,11 +350,11 @@ pub fn NewMessage(MHT: type, MHF: type, BT: type, PAYLOAD_SIZE: usize) type {
             };
 
             const size = try sock.read(&s.data);
-            if (size < @sizeOf(MsgHdr(MHT, MHF)) + @sizeOf(BT)) return error.InvalidRead;
+            if (size < @sizeOf(Hdr) + @sizeOf(BT)) return error.InvalidRead;
 
-            s.header = @as(*MsgHdr(MHT, MHF), @ptrCast(s.data[0..])).*;
+            s.header = @as(*Hdr, @ptrCast(s.data[0..])).*;
             if (size < s.header.len) return error.InvalidMsgHeader;
-            s.base = @as(*BT, @ptrCast(s.data[@sizeOf(MsgHdr(MHT, MHF))..])).*;
+            s.base = @as(*BT, @ptrCast(s.data[@sizeOf(Hdr)..])).*;
             s.len = s.header.len;
             s.extra = size - s.len;
             return s;
@@ -359,8 +365,8 @@ pub fn NewMessage(MHT: type, MHF: type, BT: type, PAYLOAD_SIZE: usize) type {
             const blob: []align(4) u8 = @alignCast(extra.data[extra.len..][0..extra.extra]);
 
             var s: Self = .{
-                .header = @as(*MsgHdr(MHT, MHF), @ptrCast(blob)).*,
-                .base = @as(*BT, @ptrCast(blob[@sizeOf(MsgHdr(MHT, MHF))..])).*,
+                .header = @as(*Hdr, @ptrCast(blob)).*,
+                .base = @as(*BT, @ptrCast(blob[@sizeOf(Hdr)..])).*,
                 .data = undefined,
             };
             if (s.header.len > blob.len) return error.InvalidHeader;
@@ -389,11 +395,11 @@ pub fn NewMessage(MHT: type, MHF: type, BT: type, PAYLOAD_SIZE: usize) type {
         }
 
         pub fn send(s: *Self, sock: socket.Socket) !void {
-            var h: MsgHdr(MHT, MHF) = s.header;
+            var h: Hdr = s.header;
             h.len = @intCast(s.len);
 
-            s.data[0..@sizeOf(MsgHdr(MHT, MHF))].* = asBytes(&h).*;
-            s.data[@sizeOf(MsgHdr(MHT, MHF))..][0..@sizeOf(BT)].* = asBytes(&s.base).*;
+            s.data[0..@sizeOf(Hdr)].* = asBytes(&h).*;
+            s.data[@sizeOf(Hdr)..][0..@sizeOf(BT)].* = asBytes(&s.base).*;
             _ = try sock.write(s.data[0..s.len]);
         }
     };
