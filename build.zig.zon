@@ -1,5 +1,5 @@
 .{
-    .name = .network,
+    .name = .netlib,
     .version = "0.0.0",
     .fingerprint = 0x608487bc19acd26c,
     .minimum_zig_version = "0.14.0",
