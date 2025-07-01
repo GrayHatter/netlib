@@ -22,9 +22,81 @@ pub const IfLink = struct {
 
     addresses: std.BoundedArray(Address, 64) = .{},
 
-    pub const Address = union(enum) {
-        inet: u32,
-        inet6: u128,
+    pub const Address = struct {
+        addr: ?Addr,
+        broadcast: ?Addr,
+        local: ?Addr = null,
+        prefix: u8 = 0,
+
+        pub const Addr = union(enum) {
+            inet: u32,
+            inet6: u128,
+            pub fn format(
+                a: Addr,
+                comptime fs: []const u8,
+                _: std.fmt.FormatOptions,
+                out: anytype,
+            ) anyerror!void {
+                if (comptime eql(u8, fs, "inet")) {
+                    switch (a) {
+                        .inet => try out.writeAll("inet  "),
+                        .inet6 => try out.writeAll("inet6 "),
+                    }
+                }
+
+                switch (a) {
+                    .inet => |in| {
+                        const bytes = std.mem.asBytes(&in);
+                        try out.print(
+                            "{}.{}.{}.{}",
+                            .{ bytes[0], bytes[1], bytes[2], bytes[3] },
+                        );
+                    },
+                    .inet6 => |in6| {
+                        var buffer: [140]u8 = @splat(0);
+                        var high: u8 = 0;
+                        var len: usize = 0;
+                        var breaks: u8 = 0;
+
+                        for (std.mem.asBytes(&in6), 0..) |b, i| {
+                            if (i > 0 and i % 2 == 0 and breaks < 2) {
+                                _ = try std.fmt.bufPrint(buffer[len..], ":", .{});
+                                len += 1;
+                                breaks += 1;
+                            }
+                            if (i % 2 == 0) {
+                                high = b;
+                                if (b == 0) continue;
+                                _ = try std.fmt.bufPrint(buffer[len..], "{x}", .{b});
+                                len += 2;
+                                breaks = 0;
+                            } else {
+                                if (high > 0) {
+                                    const B = try std.fmt.bufPrint(buffer[len..], "{x:02}", .{b});
+                                    len += B.len;
+                                } else if (b > 0) {
+                                    const B = try std.fmt.bufPrint(buffer[len..], "{x}", .{b});
+                                    len += B.len;
+                                }
+                            }
+                        }
+                        try out.print("{s}", .{buffer[0..len]});
+                    },
+                }
+            }
+        };
+
+        pub fn format(
+            a: Address,
+            comptime fs: []const u8,
+            fo: std.fmt.FormatOptions,
+            out: anytype,
+        ) anyerror!void {
+            if (a.addr) |addr| {
+                try addr.format(fs, fo, out);
+                try out.print("/{}", .{a.prefix});
+            }
+        }
     };
 
     pub const stats64 = std.os.linux.rtnl_link_stats64;
@@ -138,28 +210,7 @@ pub const IfLink = struct {
             },
         );
         for (l.addresses.constSlice()) |addr| {
-            switch (addr) {
-                .inet => |in| {
-                    const bytes = std.mem.asBytes(&in);
-                    try out.print(
-                        "\n    inet  {}.{}.{}.{}",
-                        .{ bytes[0], bytes[1], bytes[2], bytes[3] },
-                    );
-                },
-                .inet6 => |in6| {
-                    const bytes = std.mem.asBytes(&in6);
-                    try out.print("\n    inet6 {}:{}:{}:{}:{}:{}:{}:{}", .{
-                        std.fmt.fmtSliceHexLower(bytes[0..][0..2]),
-                        std.fmt.fmtSliceHexLower(bytes[2..][0..2]),
-                        std.fmt.fmtSliceHexLower(bytes[4..][0..2]),
-                        std.fmt.fmtSliceHexLower(bytes[6..][0..2]),
-                        std.fmt.fmtSliceHexLower(bytes[8..][0..2]),
-                        std.fmt.fmtSliceHexLower(bytes[10..][0..2]),
-                        std.fmt.fmtSliceHexLower(bytes[12..][0..2]),
-                        std.fmt.fmtSliceHexLower(bytes[14..][0..2]),
-                    });
-                },
-            }
+            if (addr.addr) |_| try out.print("\n    {inet}", .{addr});
         }
     }
 };
@@ -380,10 +431,9 @@ pub fn route() !void {
     if (debug) try stdout.print("done\n", .{});
 }
 
-fn dumpRtAttrAddr(stdout: anytype, data: []const u8, iflink: *IfLink) !void {
+fn dumpRtAttrAddr(stdout: anytype, data: []const u8) !IfLink.Address {
     var offset: usize = 0;
-    //const rtattr = std.os.linux.rtattr;
-    var addr: ?IfLink.Address = null;
+    var addr: IfLink.Address = .{ .addr = null, .broadcast = null, .local = null };
     while (offset < data.len) {
         const attr: Attr(netlink.IFA) = try .init(@alignCast(data[offset..]));
         switch (attr.type.type) {
@@ -395,12 +445,26 @@ fn dumpRtAttrAddr(stdout: anytype, data: []const u8, iflink: *IfLink) !void {
             .BROADCAST,
             .LOCAL,
             => |t| {
+                const addr_data: IfLink.Address.Addr = switch (attr.data.len) {
+                    4 => .{ .inet = @as(*const u32, @ptrCast(attr.data)).* },
+                    16 => .{ .inet6 = @as(*align(4) const u128, @ptrCast(attr.data)).* },
+                    else => return error.InvalidAddressSize,
+                };
+
+                switch (t) {
+                    .ADDRESS => addr.addr = addr_data,
+                    .BROADCAST => addr.broadcast = addr_data,
+                    .LOCAL => addr.local = addr_data,
+                    else => unreachable,
+                }
+
                 if (debug) try stdout.writeAll(switch (t) {
-                    .ADDRESS => "addr  ",
-                    .BROADCAST => "bcast ",
-                    .LOCAL => "local ",
+                    .ADDRESS => "    addr  ",
+                    .BROADCAST => "    bcast ",
+                    .LOCAL => "    local ",
                     else => unreachable,
                 });
+
                 const int: u16 = @intFromEnum(attr.type.type);
                 switch (attr.data.len) {
                     4 => {
@@ -410,7 +474,6 @@ fn dumpRtAttrAddr(stdout: anytype, data: []const u8, iflink: *IfLink) !void {
                             attr.data[2],
                             attr.data[3],
                         });
-                        if (t == .ADDRESS) addr = .{ .inet = @as(*const u32, @ptrCast(attr.data)).* };
                     },
                     16 => {
                         if (debug) try stdout.print("{}:{}:{}:{}:{}:{}:{}:{}\n", .{
@@ -423,56 +486,62 @@ fn dumpRtAttrAddr(stdout: anytype, data: []const u8, iflink: *IfLink) !void {
                             std.fmt.fmtSliceHexLower(attr.data[12..][0..2]),
                             std.fmt.fmtSliceHexLower(attr.data[14..][0..2]),
                         });
-                        addr = .{ .inet6 = @as(*align(4) const u128, @ptrCast(attr.data)).* };
                     },
                     else => {
-                        if (debug) try stdout.print("attr {}    {}    {b}\n", .{ attr.type.type, int, int });
-                        if (debug) try stdout.print("len {} \n", .{attr.data.len});
+                        if (debug) try stdout.print("    attr {}    {}    {b}\n", .{ attr.type.type, int, int });
+                        if (debug) try stdout.print("    len {} \n", .{attr.data.len});
                     },
                 }
             },
             .CACHEINFO => {
                 const cinfo: *align(4) const ifa_cacheinfo = @alignCast(@ptrCast(attr.data.ptr));
-                if (debug) try stdout.print("cacheinfo {} \n", .{cinfo.*});
+                if (debug) try stdout.print("    cacheinfo {} \n", .{cinfo.*});
             },
             .FLAGS => {
                 const flags: *align(4) const IFA_FLAGS = @alignCast(@ptrCast(attr.data.ptr));
-                if (debug) try stdout.print("flags {} \n", .{flags.*});
+                if (debug) try stdout.print("    flags {} \n", .{flags.*});
             },
             .PROTO => {
                 const prot: *align(4) const ifa_proto = @alignCast(@ptrCast(attr.data.ptr));
-                if (debug) try stdout.print("prot {} \n", .{prot.*});
+                if (debug) try stdout.print("    prot {} \n", .{prot.*});
             },
             .RT_PRIORITY => {
                 const pri: *align(4) const u32 = @alignCast(@ptrCast(attr.data.ptr));
-                if (debug) try stdout.print("rt pri {} \n", .{pri.*});
+                if (debug) try stdout.print("    rt pri {} \n", .{pri.*});
             },
 
             else => {
                 const int: u16 = @intFromEnum(attr.type.type);
-                try stdout.print("\n\n\n\nattr {}\n    {}    {b}\n", .{ attr.type.type, int, int });
-                try stdout.print("attr.len {}\n", .{attr.len});
-                try stdout.print("attr.data {any} \n\n\n", .{attr.data});
+                try stdout.print("    attr {}\n    {}    {b}\n", .{ attr.type.type, int, int });
+                try stdout.print("    attr.len {}\n", .{attr.len});
+                try stdout.print("    attr.data {any} \n\n\n", .{attr.data});
             },
         }
         offset += attr.len_aligned;
     }
-    if (addr) |a| try iflink.addresses.append(a);
+    return addr;
 }
 
 fn dumpAddr(stdout: anytype, data: []const u8, list: *std.ArrayListUnmanaged(IfLink)) !void {
     //try stdout.print("blob {any}\n", .{data});
     var offset: usize = @sizeOf(nlmsghdr);
-    const addr: *const ifaddrmsg = @ptrCast(@alignCast(data[offset..]));
-    if (debug) try stdout.print("addr {any}\n", .{addr});
+    const addrmsg: *const ifaddrmsg = @ptrCast(@alignCast(data[offset..]));
     offset += @sizeOf(ifaddrmsg);
-    //try stdout.print("blob {any}\n", .{data[offset..]});
-    try dumpRtAttrAddr(stdout, data[offset..], &list.items[addr.index - 1]);
+    if (debug) try stdout.print("addr {any}\n", .{addrmsg});
+    const index = addrmsg.index - 1;
+    if (index >= list.items.len) return error.UnexpectedAddressIndex;
+    const iface = &list.items[index];
+    //iface.prefix = addrmsg.prefixlen;
+
+    var addr = try dumpRtAttrAddr(stdout, data[offset..]);
+    addr.prefix = addrmsg.prefixlen;
+    try iface.addresses.append(addr);
 }
 
-const std = @import("std");
 pub const socket = @import("socket.zig").socket;
 pub const netlink = @import("netlink.zig");
-const Attr = netlink.Attr;
 pub const nlmsghdr = netlink.MsgHdr(netlink.MsgType, netlink.HeaderFlags.Get);
+const std = @import("std");
+const eql = std.mem.eql;
+const Attr = netlink.Attr;
 const AF = std.posix.AF;
