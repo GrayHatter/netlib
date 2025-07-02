@@ -334,6 +334,7 @@ pub fn NewMessage(MHT: type, MHF: type, BT: type, PAYLOAD_SIZE: usize) type {
         pub const Hdr = MsgHdr(MHT, MHF);
         pub const header_size = @sizeOf(Hdr) + @sizeOf(BT);
         pub const data_size = header_size + PAYLOAD_SIZE;
+        pub const Socket = socket.Socket(.netlink);
 
         pub fn init(h: Hdr, b: BT) Self {
             return .{
@@ -342,7 +343,7 @@ pub fn NewMessage(MHT: type, MHF: type, BT: type, PAYLOAD_SIZE: usize) type {
             };
         }
 
-        pub fn initRecv(sock: anytype) !Self {
+        pub fn initRecv(sock: Socket) !Self {
             var s: Self = .{
                 .header = undefined,
                 .base = undefined,
@@ -394,7 +395,7 @@ pub fn NewMessage(MHT: type, MHF: type, BT: type, PAYLOAD_SIZE: usize) type {
             s.len += attr.len_aligned;
         }
 
-        pub fn send(s: *Self, sock: anytype) !void {
+        pub fn send(s: *Self, sock: Socket) !void {
             var h: Hdr = s.header;
             h.len = @intCast(s.len);
 
