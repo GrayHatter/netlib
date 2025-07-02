@@ -1,4 +1,3 @@
-pub const MsgType = std.os.linux.NetlinkMessageType;
 pub const nl80211 = @import("nl80211.zig");
 
 pub fn MsgHdr(T: type, Flags: type) type {
@@ -88,6 +87,107 @@ pub const HeaderFlags = struct {
     };
 };
 
+pub const MsgType = enum(u16) {
+    /// Nothing.
+    NOOP = 0x1,
+
+    /// eRROR
+    ERROR = 0x2,
+
+    /// eND OF A DUMP
+    DONE = 0x3,
+
+    /// dATA LOST
+    OVERRUN = 0x4,
+
+    // RTLINK TYPES
+
+    rtm_newlink = 16,
+    rtm_dellink,
+    rtm_getlink,
+    rtm_setlink,
+
+    rtm_newaddr = 20,
+    rtm_deladdr,
+    rtm_getaddr,
+
+    rtm_newroute = 24,
+    rtm_delroute,
+    rtm_getroute,
+
+    rtm_newneigh = 28,
+    rtm_delneigh,
+    rtm_getneigh,
+
+    rtm_newrule = 32,
+    rtm_delrule,
+    rtm_getrule,
+
+    rtm_newqdisc = 36,
+    rtm_delqdisc,
+    rtm_getqdisc,
+
+    rtm_newtclass = 40,
+    rtm_deltclass,
+    rtm_gettclass,
+
+    rtm_newtfilter = 44,
+    rtm_deltfilter,
+    rtm_gettfilter,
+
+    rtm_newaction = 48,
+    rtm_delaction,
+    rtm_getaction,
+
+    rtm_newprefix = 52,
+
+    rtm_getmulticast = 58,
+
+    rtm_getanycast = 62,
+
+    rtm_newneightbl = 64,
+    rtm_getneightbl = 66,
+    rtm_setneightbl,
+
+    rtm_newnduseropt = 68,
+
+    rtm_newaddrlabel = 72,
+    rtm_deladdrlabel,
+    rtm_getaddrlabel,
+
+    rtm_getdcb = 78,
+    rtm_setdcb,
+
+    rtm_newnetconf = 80,
+    rtm_delnetconf,
+    rtm_getnetconf = 82,
+
+    rtm_newmdb = 84,
+    rtm_delmdb = 85,
+    rtm_getmdb = 86,
+
+    rtm_newnsid = 88,
+    rtm_delnsid = 89,
+    rtm_getnsid = 90,
+
+    rtm_newstats = 92,
+    rtm_getstats = 94,
+
+    rtm_newcachereport = 96,
+
+    rtm_newchain = 100,
+    rtm_delchain,
+    rtm_getchain,
+
+    rtm_newnexthop = 104,
+    rtm_delnexthop,
+    rtm_getnexthop,
+
+    _,
+    /// < 0x10: reserved control messages
+    pub const MIN_TYPE = 0x10;
+};
+
 pub fn Attr(T: type) type {
     return struct {
         len: u16,
@@ -137,83 +237,85 @@ pub const IFLA = packed struct(u16) {
     nested: bool,
 
     pub const Type = enum(u14) {
-        UNSPEC,
-        ADDRESS,
-        BROADCAST,
-        IFNAME,
-        MTU,
-        LINK,
-        QDISC,
-        STATS,
-        COST,
-        PRIORITY,
-        MASTER,
+        unspec,
+        address,
+        broadcast,
+        ifname,
+        mtu,
+        link,
+        qdisc,
+        stats,
+        cost,
+        priority,
+        master,
         /// Wireless Extension event
-        WIRELESS,
+        wireless,
         /// Protocol specific information for a link
-        PROTINFO,
-        TXQLEN,
-        MAP,
-        WEIGHT,
-        OPERSTATE,
-        LINKMODE,
-        LINKINFO,
-        NET_NS_PID,
-        IFALIAS,
+        protinfo,
+        txqlen,
+        map,
+        weight,
+        operstate,
+        linkmode,
+        linkinfo,
+        net_ns_pid,
+        ifalias,
         /// Number of VFs if device is SR-IOV PF
-        NUM_VF,
-        VFINFO_LIST,
-        STATS64,
-        VF_PORTS,
-        PORT_SELF,
-        AF_SPEC,
+        num_vf,
+        vfinfo_list,
+        stats64,
+        vf_ports,
+        port_self,
+        af_spec,
         /// Group the device belongs to
-        GROUP,
-        NET_NS_FD,
+        group,
+        net_ns_fd,
         /// Extended info mask, VFs, etc
-        EXT_MASK,
+        ext_mask,
         /// Promiscuity count: > 0 means acts PROMISC
-        PROMISCUITY,
-        NUM_TX_QUEUES,
-        NUM_RX_QUEUES,
-        CARRIER,
-        PHYS_PORT_ID,
-        CARRIER_CHANGES,
-        PHYS_SWITCH_ID,
-        LINK_NETNSID,
-        PHYS_PORT_NAME,
-        PROTO_DOWN,
-        GSO_MAX_SEGS,
-        GSO_MAX_SIZE,
-        PAD,
-        XDP,
-        EVENT,
-        NEW_NETNSID,
-        IF_NETNSID,
-        CARRIER_UP_COUNT,
-        CARRIER_DOWN_COUNT,
-        NEW_IFINDEX,
-        MIN_MTU,
-        MAX_MTU,
-        PROP_LIST,
-        ALT_IFNAME, // Alternative ifname
-        PERM_ADDRESS,
-        PROTO_DOWN_REASON,
+        promiscuity,
+        num_tx_queues,
+        num_rx_queues,
+        carrier,
+        phys_port_id,
+        carrier_changes,
+        phys_switch_id,
+        link_netnsid,
+        phys_port_name,
+        proto_down,
+        gso_max_segs,
+        gso_max_size,
+        pad,
+        xdp,
+        event,
+        new_netnsid,
+        if_netnsid,
+        carrier_up_count,
+        carrier_down_count,
+        new_ifindex,
+        min_mtu,
+        max_mtu,
+        prop_list,
+        // Alternative ifname
+        alt_ifname,
+        perm_address,
+        proto_down_reason,
         // device (sysfs) name as parent, used instead
         // of IFLA_LINK where there's no parent netdev
-        PARENT_DEV_NAME,
-        PARENT_DEV_BUS_NAME,
-        GRO_MAX_SIZE,
-        TSO_MAX_SIZE,
-        TSO_MAX_SEGS,
-        ALLMULTI, // Allmulti count: > 0 means acts ALLMULTI
-        DEVLINK_PORT,
-        GSO_IPV4_MAX_SIZE,
-        GRO_IPV4_MAX_SIZE,
-        DPLL_PIN,
-        MAX_PACING_OFFLOAD_HORIZON,
-        NETNS_IMMUTABLE,
-        __MAX,
+        parent_dev_name,
+        parent_dev_bus_name,
+        gro_max_size,
+        tso_max_size,
+        tso_max_segs,
+        // Allmulti count: > 0 means acts ALLMULTI
+        allmulti,
+        devlink_port,
+        gso_ipv4_max_size,
+        gro_ipv4_max_size,
+        dpll_pin,
+        max_pacing_offload_horizon,
+        netns_immutable,
+        __max,
         _,
     };
 
@@ -226,18 +328,18 @@ pub const IFA = packed struct(u16) {
     nested: bool,
 
     const Type = enum(u14) {
-        UNSPEC,
-        ADDRESS,
-        LOCAL,
-        LABEL,
-        BROADCAST,
-        ANYCAST,
-        CACHEINFO,
-        MULTICAST,
-        FLAGS,
-        RT_PRIORITY,
-        TARGET_NETNSID,
-        PROTO,
+        unspec,
+        address,
+        local,
+        label,
+        broadcast,
+        anycast,
+        cacheinfo,
+        multicast,
+        flags,
+        rt_priority,
+        target_netnsid,
+        proto,
         _,
     };
 };
@@ -267,48 +369,48 @@ pub const generic = struct {
 
     pub const Ctrl = struct {
         pub const Attr = enum(u16) {
-            UNSPEC,
-            FAMILY_ID,
-            FAMILY_NAME,
-            VERSION,
-            HDRSIZE,
-            MAXATTR,
-            OPS,
-            MCAST_GROUPS,
-            POLICY,
-            OP_POLICY,
-            OP,
-            __MAX,
+            unspec,
+            family_id,
+            family_name,
+            version,
+            hdrsize,
+            maxattr,
+            ops,
+            mcast_groups,
+            policy,
+            op_policy,
+            op,
+            __max,
         };
 
         pub const AttrOps = enum(u16) {
-            UNSPEC,
-            ID,
-            FLAGS,
-            __MAX,
+            unspec,
+            id,
+            flags,
+            __max,
         };
 
         pub const Cmd = enum(u8) {
-            UNSPEC,
-            NEWFAMILY,
-            DELFAMILY,
-            GETFAMILY,
-            NEWOPS,
-            DELOPS,
-            GETOPS,
-            NEWMCAST_GRP,
-            DELMCAST_GRP,
-            GETMCAST_GRP,
-            GETPOLICY,
-            __MAX,
+            unspec,
+            newfamily,
+            delfamily,
+            getfamily,
+            newops,
+            delops,
+            getops,
+            newmcast_grp,
+            delmcast_grp,
+            getmcast_grp,
+            getpolicy,
+            __max,
         };
     };
 
     pub const GENL = enum(u8) {
-        ID_CTRL = std.os.linux.NetlinkMessageType.MIN_TYPE,
-        ID_VFS_DQUOT,
-        ID_PMCRAID,
-        START_ALLOC,
+        id_ctrl = std.os.linux.NetlinkMessageType.MIN_TYPE,
+        id_vfs_dquot,
+        id_pmcraid,
+        start_alloc,
     };
     pub const CAP = packed struct(u32) {
         ADMIN_PERM: bool,

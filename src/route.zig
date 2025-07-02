@@ -118,47 +118,47 @@ pub const IfLink = struct {
         while (offset < nlmsg.len) {
             const attr: Attr(netlink.IFLA) = try .init(@alignCast(nlmsg[offset..]));
             switch (attr.type.type) {
-                .QDISC => link.qdisc = attr.data[0 .. attr.data.len - 1 :0],
-                .IFNAME => link.name = attr.data[0 .. attr.data.len - 1 :0],
-                .AF_SPEC => {
+                .qdisc => link.qdisc = attr.data[0 .. attr.data.len - 1 :0],
+                .ifname => link.name = attr.data[0 .. attr.data.len - 1 :0],
+                .af_spec => {
                     if (debug) {
                         std.debug.print("attr {}\n", .{attr.type.type});
                         std.debug.print("attr.len {}\n", .{attr.len});
                         std.debug.print("attr.data {any}\n", .{attr.data});
                     }
                 },
-                .STATS => {},
-                .STATS64 => {
+                .stats => {},
+                .stats64 => {
                     var stats: stats64 = undefined;
                     const sbytes = std.mem.asBytes(&stats);
                     if (attr.len < sbytes.len) return error.MalformedAttr;
                     link.stats = @as(*align(4) const stats64, @ptrCast(attr.data[0..sbytes.len])).*;
                 },
-                .ADDRESS => switch (attr.data.len) {
+                .address => switch (attr.data.len) {
                     6 => link.mac = attr.data[0..6].*,
                     else => return error.InvalidAddress,
                 },
-                .BROADCAST => switch (attr.data.len) {
+                .broadcast => switch (attr.data.len) {
                     6 => link.mac_brd = attr.data[0..6].*,
                     else => return error.InvalidAddress,
                 },
-                .MAP => {
+                .map => {
                     const link_ifmap = std.os.linux.rtnl_link_ifmap;
                     const ifmap: *align(4) const link_ifmap = @alignCast(@ptrCast(attr.data.ptr));
                     if (debug) std.debug.print("ifmap {} \n", .{ifmap.*});
                 },
-                .WIRELESS => std.debug.print("WIRELESS attr.data {any} \n", .{attr.data}),
-                .CARRIER => link.carrier = attr.data[0] == 1,
-                .MTU => link.mtu = @bitCast(attr.data[0..4].*),
-                .MIN_MTU => link.mtu_min = @bitCast(attr.data[0..4].*),
-                .MAX_MTU => link.mtu_max = @bitCast(attr.data[0..4].*),
-                .TXQLEN => link.txqueue = @bitCast(attr.data[0..4].*),
-                .GROUP => link.grp_id = @bitCast(attr.data[0..4].*),
+                .wireless => std.debug.print("WIRELESS attr.data {any} \n", .{attr.data}),
+                .carrier => link.carrier = attr.data[0] == 1,
+                .mtu => link.mtu = @bitCast(attr.data[0..4].*),
+                .min_mtu => link.mtu_min = @bitCast(attr.data[0..4].*),
+                .max_mtu => link.mtu_max = @bitCast(attr.data[0..4].*),
+                .txqlen => link.txqueue = @bitCast(attr.data[0..4].*),
+                .group => link.grp_id = @bitCast(attr.data[0..4].*),
                 // Probably nested
-                .PROP_LIST => {
+                .prop_list => {
                     const pattr: Attr(netlink.IFLA) = try .init(@alignCast(attr.data));
                     switch (pattr.type.type) {
-                        .ALT_IFNAME => link.altname = pattr.data[0 .. pattr.data.len - 1 :0],
+                        .alt_ifname => link.altname = pattr.data[0 .. pattr.data.len - 1 :0],
                         else => std.debug.print("{}\n", .{pattr}),
                     }
                 },
@@ -239,15 +239,15 @@ const net_device_flags = packed struct(c_uint) {
 };
 
 pub const ifa_proto = enum(u8) {
-    UNSPEC,
-    KERNEL_LO,
-    KERNEL_RA,
-    KERNEL_LL,
+    unspec,
+    kernel_lo,
+    kernel_ra,
+    kernel_ll,
 };
 
 const Family = enum(u8) {
-    IPv4 = 2,
-    IPv6 = 10,
+    ipv4 = 2,
+    ipv6 = 10,
     _,
 };
 
@@ -329,7 +329,7 @@ pub fn route() !void {
 
     var hdr: netlink.MsgHdr(netlink.MsgType, netlink.HeaderFlags.Get) = .{
         .len = @sizeOf(nlmsghdr) + @sizeOf(netlink.route.GenMsg),
-        .type = .RTM_GETLINK,
+        .type = .rtm_getlink,
         .flags = .{
             .REQUEST = true,
             .ACK = true,
@@ -379,7 +379,7 @@ pub fn route() !void {
             const aligned: usize = lhdr.len + 3 & ~@as(usize, 3);
 
             switch (lhdr.type) {
-                .RTM_NEWLINK => {
+                .rtm_newlink => {
                     iflist.appendAssumeCapacity(try .init(@alignCast(rbuffer[start..][0..aligned])));
                     //try stdout.print("{}\n", .{link});
                 },
@@ -392,7 +392,7 @@ pub fn route() !void {
         }
     }
 
-    hdr.type = .RTM_GETADDR;
+    hdr.type = .rtm_getaddr;
     hdr.seq += 1;
     w_list.items.len = 0;
     try w.writeStruct(hdr);
@@ -415,7 +415,7 @@ pub fn route() !void {
             const aligned: usize = lhdr.len + 3 & ~@as(usize, 3);
 
             switch (lhdr.type) {
-                .RTM_NEWADDR => try dumpAddr(stdout, rbuffer_a[start..][0..aligned], &iflist),
+                .rtm_newaddr => try dumpAddr(stdout, rbuffer_a[start..][0..aligned], &iflist),
                 .DONE => nl_more = false,
                 else => |t| try stdout.print("unimplemented tag {}\n", .{t}),
             }
@@ -438,13 +438,13 @@ fn dumpRtAttrAddr(stdout: anytype, data: []const u8) !IfLink.Address {
     while (offset < data.len) {
         const attr: Attr(netlink.IFA) = try .init(@alignCast(data[offset..]));
         switch (attr.type.type) {
-            .LABEL => {
+            .label => {
                 const name: [:0]const u8 = attr.data[0 .. attr.data.len - 1 :0];
                 if (debug) try stdout.print("name ({}) '{s}' {any} \n", .{ name.len, name, name });
             },
-            .ADDRESS,
-            .BROADCAST,
-            .LOCAL,
+            .address,
+            .broadcast,
+            .local,
             => |t| {
                 const addr_data: IfLink.Address.Addr = switch (attr.data.len) {
                     4 => .{ .inet = @as(*const u32, @ptrCast(attr.data)).* },
@@ -453,16 +453,16 @@ fn dumpRtAttrAddr(stdout: anytype, data: []const u8) !IfLink.Address {
                 };
 
                 switch (t) {
-                    .ADDRESS => addr.addr = addr_data,
-                    .BROADCAST => addr.broadcast = addr_data,
-                    .LOCAL => addr.local = addr_data,
+                    .address => addr.addr = addr_data,
+                    .broadcast => addr.broadcast = addr_data,
+                    .local => addr.local = addr_data,
                     else => unreachable,
                 }
 
                 if (debug) try stdout.writeAll(switch (t) {
-                    .ADDRESS => "    addr  ",
-                    .BROADCAST => "    bcast ",
-                    .LOCAL => "    local ",
+                    .address => "    addr  ",
+                    .broadcast => "    bcast ",
+                    .local => "    local ",
                     else => unreachable,
                 });
 
@@ -494,19 +494,19 @@ fn dumpRtAttrAddr(stdout: anytype, data: []const u8) !IfLink.Address {
                     },
                 }
             },
-            .CACHEINFO => {
+            .cacheinfo => {
                 const cinfo: *align(4) const ifa_cacheinfo = @alignCast(@ptrCast(attr.data.ptr));
                 if (debug) try stdout.print("    cacheinfo {} \n", .{cinfo.*});
             },
-            .FLAGS => {
+            .flags => {
                 const flags: *align(4) const IFA_FLAGS = @alignCast(@ptrCast(attr.data.ptr));
                 if (debug) try stdout.print("    flags {} \n", .{flags.*});
             },
-            .PROTO => {
+            .proto => {
                 const prot: *align(4) const ifa_proto = @alignCast(@ptrCast(attr.data.ptr));
                 if (debug) try stdout.print("    prot {} \n", .{prot.*});
             },
-            .RT_PRIORITY => {
+            .rt_priority => {
                 const pri: *align(4) const u32 = @alignCast(@ptrCast(attr.data.ptr));
                 if (debug) try stdout.print("    rt pri {} \n", .{pri.*});
             },

@@ -8,10 +8,10 @@ pub fn sendMsg() !void {
     const AttrCtrlHdr = Attr(nl.generic.Ctrl.Attr);
 
     var msg: nl.NewMessage(nl.generic.GENL, NlHdrFlags.Ack, CtrlMsgHdr, 12) = .init(
-        .{ .len = 0, .type = .ID_CTRL, .flags = .ReqAck, .seq = 1 },
-        .{ .cmd = .GETFAMILY },
+        .{ .len = 0, .type = .id_ctrl, .flags = .ReqAck, .seq = 1 },
+        .{ .cmd = .getfamily },
     );
-    try msg.packAttr(AttrCtrlHdr, .initNew(.FAMILY_NAME, @alignCast("nl80211\x00")));
+    try msg.packAttr(AttrCtrlHdr, .initNew(.family_name, @alignCast("nl80211\x00")));
     try msg.send(s);
 
     var fid: u16 = 0;
@@ -55,7 +55,7 @@ fn dumpProtocol(stdout: anytype, fid: u16) !void {
     const CtrlMsgHdr = nl.generic.MsgHdr(Cmd);
     var msg: nl.NewMessage(u16, NlHdrFlags.Get, CtrlMsgHdr, 0) = .init(
         .{ .len = 0, .type = fid, .flags = .ReqAck, .seq = 6 },
-        .{ .cmd = .GET_PROTOCOL_FEATURES },
+        .{ .cmd = .get_protocol_features },
     );
     try msg.send(s);
 
@@ -105,7 +105,7 @@ fn dumpWiphy(stdout: anytype, fid: u16) !void {
 
     var msg: nl.NewMessage(u16, NlHdrFlags.Get, CtrlMsgHdr, 0) = .init(
         .{ .len = 0, .type = fid, .flags = .DUMP, .seq = 17 },
-        .{ .cmd = .GET_WIPHY },
+        .{ .cmd = .get_wiphy },
     );
     try msg.send(s);
     try stdout.print("sentmsg {any}\n", .{msg.data[0..msg.len]});
@@ -134,7 +134,7 @@ fn dumpWiphy(stdout: anytype, fid: u16) !void {
                 while (blob.len > 0) {
                     const attr: Attr(Attrs) = try .init(blob);
                     switch (attr.type) {
-                        .WIPHY_NAME => try stdout.print("    name: {s}\n", .{attr.data[0 .. attr.data.len - 1 :0]}),
+                        .wiphy_name => try stdout.print("    name: {s}\n", .{attr.data[0 .. attr.data.len - 1 :0]}),
                         else => {
                             try stdout.print(
                                 "    attr.type {} [{}] {any}\n",
@@ -161,7 +161,7 @@ fn dumpIface(stdout: anytype, fid: u16) !void {
 
     var msg: nl.NewMessage(u16, NlHdrFlags.Get, CtrlMsgHdr, 0) = .init(
         .{ .len = 0, .type = fid, .flags = .DUMP, .seq = 17 },
-        .{ .cmd = .GET_INTERFACE },
+        .{ .cmd = .get_interface },
     );
     try msg.send(s);
     try stdout.print("sentmsg {any}\n", .{msg.data[0..msg.len]});
@@ -217,10 +217,10 @@ fn dumpScan(stdout: anytype, fid: u16) !void {
 
     var msg: nl.NewMessage(u16, NlHdrFlags.Get, CtrlMsgHdr, 8) = .init(
         .{ .len = 0, .type = fid, .flags = .DUMP, .seq = 22 },
-        .{ .cmd = .GET_SCAN },
+        .{ .cmd = .get_scan },
     );
     const ifidx: u32 = 2;
-    try msg.packAttr(Attr(Attrs), .initNew(.IFINDEX, std.mem.asBytes(&ifidx)));
+    try msg.packAttr(Attr(Attrs), .initNew(.ifindex, std.mem.asBytes(&ifidx)));
     try msg.send(s);
 
     try stdout.print("\n\n\nsent msg {any}\n", .{msg.data[0..msg.len]});
@@ -246,10 +246,10 @@ fn dumpScan(stdout: anytype, fid: u16) !void {
                 while (blob.len > 0) {
                     const attr: Attr(Attrs) = try .init(blob);
                     switch (attr.type) {
-                        .GENERATION => try stdout.print("    GENERATION {any}\n", .{attr.data}),
-                        .IFINDEX => try stdout.print("    IFINDEX {}\n", .{@as(*const u32, @ptrCast(attr.data.ptr)).*}),
-                        .WDEV => try stdout.print("    WDEV {}\n", .{@as(*align(4) const u64, @ptrCast(attr.data.ptr)).*}),
-                        .BSS => {
+                        .generation => try stdout.print("    GENERATION {any}\n", .{attr.data}),
+                        .ifindex => try stdout.print("    IFINDEX {}\n", .{@as(*const u32, @ptrCast(attr.data.ptr)).*}),
+                        .wdev => try stdout.print("    WDEV {}\n", .{@as(*align(4) const u64, @ptrCast(attr.data.ptr)).*}),
+                        .bss => {
                             try stdout.print("    BSSDATA\n", .{});
                             var bss_attr_offset: usize = 0;
                             while (bss_attr_offset < attr.len_aligned - 4) {
@@ -287,13 +287,13 @@ pub fn dumpAttrs(stdout: anytype, data: []align(4) const u8) !u16 {
     while (offset < data.len) {
         const attr: Attr(nl.generic.Ctrl.Attr) = try .init(@alignCast(data[offset..]));
         switch (attr.type) {
-            .FAMILY_NAME => try stdout.print("name: {s}\n", .{attr.data[0 .. attr.data.len - 1 :0]}),
-            .FAMILY_ID => family_id = @as(*const u16, @ptrCast(attr.data)).*,
-            .VERSION => try stdout.print("version: {}\n", .{@as(*const u32, @ptrCast(attr.data)).*}),
-            .HDRSIZE => try stdout.print("hdrsize: {}\n", .{@as(*const u32, @ptrCast(attr.data)).*}),
-            .MAXATTR => try stdout.print("maxattr: {}\n", .{@as(*const u32, @ptrCast(attr.data)).*}),
-            .MCAST_GROUPS => try stdout.print("mcastgrp: {any}\n", .{attr.data}),
-            .OPS => {
+            .family_name => try stdout.print("name: {s}\n", .{attr.data[0 .. attr.data.len - 1 :0]}),
+            .family_id => family_id = @as(*const u16, @ptrCast(attr.data)).*,
+            .version => try stdout.print("version: {}\n", .{@as(*const u32, @ptrCast(attr.data)).*}),
+            .hdrsize => try stdout.print("hdrsize: {}\n", .{@as(*const u32, @ptrCast(attr.data)).*}),
+            .maxattr => try stdout.print("maxattr: {}\n", .{@as(*const u32, @ptrCast(attr.data)).*}),
+            .mcast_groups => try stdout.print("mcastgrp: {any}\n", .{attr.data}),
+            .ops => {
                 try stdout.print(
                     "attr {}\n    {}    {b}\n",
                     .{ attr.type, @intFromEnum(attr.type), @intFromEnum(attr.type) },
