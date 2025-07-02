@@ -6,8 +6,8 @@ pub const IfLink = struct {
     altname: ?[:0]const u8 = null,
     grp_id: u32 = 0,
 
-    mac: ?[6]u8 = null,
-    mac_brd: ?[6]u8 = null,
+    mac: [6]u8 = @splat(0),
+    mac_brd: [6]u8 = @splat(0xff),
 
     stats: ?stats64 = null,
 
@@ -195,16 +195,16 @@ pub const IfLink = struct {
             .{
                 l.index,                                     l.name,   if (l.carrier) "UP" else "DOWN", l.mtu,
                 l.qdisc orelse "ukn",                        l.grp_id, l.txqueue,
-                if (l.mac) |m| std.fmt.bufPrint(
+                std.fmt.bufPrint(
                     &mac_buf,
                     "{x}:{x}:{x}:{x}:{x}:{x}",
-                    .{ m[0], m[1], m[2], m[3], m[4], m[5] },
-                ) catch unreachable else "mac not found",
-                if (l.mac_brd) |b| std.fmt.bufPrint(
+                    .{ l.mac[0], l.mac[1], l.mac[2], l.mac[3], l.mac[4], l.mac[5] },
+                ) catch unreachable,
+                std.fmt.bufPrint(
                     &brd_buf,
                     "{x}:{x}:{x}:{x}:{x}:{x}",
-                    .{ b[0], b[1], b[2], b[3], b[4], b[5] },
-                ) catch unreachable else "mac not found",
+                    .{ l.mac_brd[0], l.mac_brd[1], l.mac_brd[2], l.mac_brd[3], l.mac_brd[4], l.mac_brd[5] },
+                ) catch unreachable,
                 if (l.altname) |_| "\n    altname " else "",
                 l.altname orelse "",
             },
