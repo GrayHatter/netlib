@@ -318,7 +318,8 @@ pub const ifa_cacheinfo = extern struct {
 pub fn route() !void {
     const stdout = std.io.getStdOut().writer();
 
-    const s = try socket(.netlink_route);
+    const s: socket = try .init(.route);
+    defer s.close();
 
     const full_size = @sizeOf(nlmsghdr) + @sizeOf(netlink.route.GenMsg);
 
@@ -538,7 +539,7 @@ fn dumpAddr(stdout: anytype, data: []const u8, list: *std.ArrayListUnmanaged(IfL
     try iface.addresses.append(addr);
 }
 
-pub const socket = @import("socket.zig").socket;
+pub const socket = @import("socket.zig").Socket(.netlink);
 pub const netlink = @import("netlink.zig");
 pub const nlmsghdr = netlink.MsgHdr(netlink.MsgType, netlink.HeaderFlags.Get);
 const std = @import("std");

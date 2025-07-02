@@ -1,7 +1,7 @@
 pub fn sendMsg() !void {
     const stdout = std.io.getStdOut().writer();
 
-    const s = try socket(.netlink_generic);
+    const s: socket = try .init(.generic);
     defer s.close();
 
     const CtrlMsgHdr = nl.generic.MsgHdr(nl.generic.Ctrl.Cmd);
@@ -48,7 +48,7 @@ pub fn sendMsg() !void {
 }
 
 fn dumpProtocol(stdout: anytype, fid: u16) !void {
-    const s = try socket(.netlink_generic);
+    const s: socket = try .init(.generic);
     defer s.close();
     try stdout.print("\n\n\ndump prot features\n", .{});
 
@@ -95,7 +95,7 @@ fn dumpProtocol(stdout: anytype, fid: u16) !void {
 }
 
 fn dumpWiphy(stdout: anytype, fid: u16) !void {
-    const s = try socket(.netlink_generic);
+    const s: socket = try .init(.generic);
     defer s.close();
 
     try stdout.print("\n\n\ndump wiphy\n", .{});
@@ -151,7 +151,7 @@ fn dumpWiphy(stdout: anytype, fid: u16) !void {
 }
 
 fn dumpIface(stdout: anytype, fid: u16) !void {
-    const s = try socket(.netlink_generic);
+    const s: socket = try .init(.generic);
     defer s.close();
 
     try stdout.print("\n\n\ndump wiphy\n", .{});
@@ -207,7 +207,7 @@ fn dumpIface(stdout: anytype, fid: u16) !void {
 }
 
 fn dumpScan(stdout: anytype, fid: u16) !void {
-    const s = try socket(.netlink_generic);
+    const s: socket = try .init(.generic);
     defer s.close();
 
     try stdout.print("\n\n\ndump scan\n", .{});
@@ -346,7 +346,7 @@ const Attrs = kapi.Attrs;
 const Cmd = kapi.Cmd;
 
 const nl = @import("netlink.zig");
-const socket = @import("socket.zig").socket;
+const socket = @import("socket.zig").Socket(.netlink);
 
 const Attr = nl.Attr;
 

@@ -252,7 +252,7 @@ pub const route = struct {
 
 pub const generic = struct {
     /// Experimental API
-    pub fn newSocket() !socket.Socket {
+    pub fn newSocket() !socket.Socket(.netlink) {
         return try socket.socket(.netlink_generic);
     }
 
@@ -342,7 +342,7 @@ pub fn NewMessage(MHT: type, MHF: type, BT: type, PAYLOAD_SIZE: usize) type {
             };
         }
 
-        pub fn initRecv(sock: socket.Socket) !Self {
+        pub fn initRecv(sock: anytype) !Self {
             var s: Self = .{
                 .header = undefined,
                 .base = undefined,
@@ -394,7 +394,7 @@ pub fn NewMessage(MHT: type, MHF: type, BT: type, PAYLOAD_SIZE: usize) type {
             s.len += attr.len_aligned;
         }
 
-        pub fn send(s: *Self, sock: socket.Socket) !void {
+        pub fn send(s: *Self, sock: anytype) !void {
             var h: Hdr = s.header;
             h.len = @intCast(s.len);
 
