@@ -37,50 +37,14 @@ pub const IfLink = struct {
                 _: std.fmt.FormatOptions,
                 out: anytype,
             ) anyerror!void {
-                if (comptime eql(u8, fs, "inet")) {
-                    switch (a) {
-                        .inet => try out.writeAll("inet  "),
-                        .inet6 => try out.writeAll("inet6 "),
-                    }
-                }
-
                 switch (a) {
                     .inet => |in| {
-                        const bytes = std.mem.asBytes(&in);
-                        try out.print(
-                            "{}.{}.{}.{}",
-                            .{ bytes[0], bytes[1], bytes[2], bytes[3] },
-                        );
+                        if (comptime eql(u8, fs, "inet")) try out.writeAll("inet  ");
+                        try out.print("{}", .{formatIpv4(in)});
                     },
                     .inet6 => |in6| {
-                        var buffer: [140]u8 = @splat(0);
-                        var high: u8 = 0;
-                        var len: usize = 0;
-                        var breaks: u8 = 0;
-
-                        for (std.mem.asBytes(&in6), 0..) |b, i| {
-                            if (i > 0 and i % 2 == 0 and breaks < 2) {
-                                _ = try std.fmt.bufPrint(buffer[len..], ":", .{});
-                                len += 1;
-                                breaks += 1;
-                            }
-                            if (i % 2 == 0) {
-                                high = b;
-                                if (b == 0) continue;
-                                _ = try std.fmt.bufPrint(buffer[len..], "{x}", .{b});
-                                len += 2;
-                                breaks = 0;
-                            } else {
-                                if (high > 0) {
-                                    const B = try std.fmt.bufPrint(buffer[len..], "{x:02}", .{b});
-                                    len += B.len;
-                                } else if (b > 0) {
-                                    const B = try std.fmt.bufPrint(buffer[len..], "{x}", .{b});
-                                    len += B.len;
-                                }
-                            }
-                        }
-                        try out.print("{s}", .{buffer[0..len]});
+                        if (comptime eql(u8, fs, "inet")) try out.writeAll("inet6 ");
+                        try out.print("{}", .{formatIpv6(in6)});
                     },
                 }
             }
@@ -94,7 +58,7 @@ pub const IfLink = struct {
         ) anyerror!void {
             if (a.addr) |addr| {
                 try addr.format(fs, fo, out);
-                try out.print("/{}", .{a.prefix});
+                if (a.prefix > 0) try out.print("/{}", .{a.prefix});
             }
         }
     };
@@ -186,27 +150,14 @@ pub const IfLink = struct {
     }
 
     pub fn format(l: IfLink, comptime _: []const u8, _: std.fmt.FormatOptions, out: anytype) anyerror!void {
-        var mac_buf: [17]u8 = undefined;
-        var brd_buf: [17]u8 = undefined;
         try out.print(
             \\{}: {s}: <{s}> mtu[{}] qdisc[{s}] state[--] mode[--] group[{}] qlen[{}]
             \\    link/[something] {s} {s}{s}{s}
         ,
             .{
-                l.index,                                     l.name,   if (l.carrier) "UP" else "DOWN", l.mtu,
-                l.qdisc orelse "ukn",                        l.grp_id, l.txqueue,
-                std.fmt.bufPrint(
-                    &mac_buf,
-                    "{x}:{x}:{x}:{x}:{x}:{x}",
-                    .{ l.mac[0], l.mac[1], l.mac[2], l.mac[3], l.mac[4], l.mac[5] },
-                ) catch unreachable,
-                std.fmt.bufPrint(
-                    &brd_buf,
-                    "{x}:{x}:{x}:{x}:{x}:{x}",
-                    .{ l.mac_brd[0], l.mac_brd[1], l.mac_brd[2], l.mac_brd[3], l.mac_brd[4], l.mac_brd[5] },
-                ) catch unreachable,
-                if (l.altname) |_| "\n    altname " else "",
-                l.altname orelse "",
+                l.index,              l.name,                                      if (l.carrier) "UP" else "DOWN", l.mtu,
+                l.qdisc orelse "ukn", l.grp_id,                                    l.txqueue,                       formatMac(l.mac),
+                formatMac(l.mac_brd), if (l.altname) |_| "\n    altname " else "", l.altname orelse "",
             },
         );
         for (l.addresses.constSlice()) |addr| {
@@ -214,6 +165,62 @@ pub const IfLink = struct {
         }
     }
 };
+
+pub fn formatIpv6(ipaddr: u128) std.fmt.Formatter(formatIpv6Fn) {
+    return .{ .data = ipaddr };
+}
+
+fn formatIpv6Fn(ipaddr: u128, comptime _: []const u8, _: std.fmt.FormatOptions, out: anytype) anyerror!void {
+    const bytes = std.mem.asBytes(&ipaddr);
+    var buffer: [140]u8 = @splat(0);
+    var high: u8 = 0;
+    var len: usize = 0;
+    var breaks: u8 = 0;
+
+    for (bytes, 0..) |b, i| {
+        if (i > 0 and i % 2 == 0 and breaks < 2) {
+            _ = try std.fmt.bufPrint(buffer[len..], ":", .{});
+            len += 1;
+            breaks += 1;
+        }
+        if (i % 2 == 0) {
+            high = b;
+            if (b == 0) continue;
+            _ = try std.fmt.bufPrint(buffer[len..], "{x}", .{b});
+            len += 2;
+            breaks = 0;
+        } else {
+            if (high > 0) {
+                const B = try std.fmt.bufPrint(buffer[len..], "{x:02}", .{b});
+                len += B.len;
+            } else if (b > 0) {
+                const B = try std.fmt.bufPrint(buffer[len..], "{x}", .{b});
+                len += B.len;
+            }
+        }
+    }
+    try out.print("{s}", .{buffer[0..len]});
+}
+
+pub fn formatIpv4(ipaddr: u32) std.fmt.Formatter(formatIpv4Fn) {
+    return .{ .data = ipaddr };
+}
+
+fn formatIpv4Fn(ipaddr: u32, comptime _: []const u8, _: std.fmt.FormatOptions, out: anytype) anyerror!void {
+    const b = std.mem.asBytes(&ipaddr);
+    try out.print("{}.{}.{}.{}", .{ b[0], b[1], b[2], b[3] });
+}
+
+pub fn formatMac(mac: [6]u8) std.fmt.Formatter(formatMacFn) {
+    return .{ .data = mac };
+}
+
+fn formatMacFn(mac: [6]u8, comptime _: []const u8, _: std.fmt.FormatOptions, out: anytype) anyerror!void {
+    return out.print(
+        "{x:02}:{x:02}:{x:02}:{x:02}:{x:02}:{x:02}",
+        .{ mac[0], mac[1], mac[2], mac[3], mac[4], mac[5] },
+    );
+}
 
 const net_device_flags = packed struct(c_uint) {
     up: bool,
